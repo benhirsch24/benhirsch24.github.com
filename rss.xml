@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+    <channel>
+        <title>Ben's Mental Models RSS feed.</title>
+        <link>http://example.com</link>
+        <description><![CDATA[An RSS Feed for the blog about Ben Hirsch's various writings on Computer Science, Math, and himself.]]></description>
+        <atom:link href="http://example.com/rss.xml" rel="self"
+                   type="application/rss+xml" />
+        <lastBuildDate>Sat, 02 Jun 2012 00:00:00 UT</lastBuildDate>
+        <item>
+    <title>Clever Initial Blog Post Title</title>
+    <link>http://example.com/posts/2012-06-02-its-my-time-now.html</link>
+    <description><![CDATA[So this is a blog about me. But what about me in particular? Well here's a fact about me: I'm currently writing this entry to see what it'll look like on my blog and to stretch out my blog a little bit.]]></description>
+    <pubDate>Sat, 02 Jun 2012 00:00:00 UT</pubDate>
+    <guid>http://example.com/posts/2012-06-02-its-my-time-now.html</guid>
+</item>
+
+    </channel> 
+</rss>
