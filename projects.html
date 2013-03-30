@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html>
    <head>
-      <title>Ben's Blog - Home</title>
+      <title>Ben's Blog - projects</title>
       <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-      <link href="./css/bootstrap.css" rel="stylesheet" />
-      <link href="./css/bootstrap-responsive.css" rel="stylesheet" />
-      <link href="http://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet" type="text/css">
+      <link href="/css/bootstrap.css" rel="stylesheet" />
+      <link href="/css/bootstrap-responsive.css" rel="stylesheet" />
+      <link href='http://fonts.googleapis.com/css?family=PT+Sans' rel='stylesheet' type='text/css'>
       <style>
          body {
             font-family: 'PT Sans', sans-serif;
@@ -58,24 +58,19 @@
          Hi I'm Ben. I'm currently an intern at <a href="http://experts-exchange.com">Experts Exchange</a> and I'm graduating Cal Poly San Luis Obispo this Spring with a degree in Computer Science and a minor in Math. My main Computer Science interests include parallel programming, machine learning, programming languages (compilers and type theory especialy), and functional programming. Outside of that I enjoy watching Sci-Fi TV, lifting weights, reading books, and playing basketball (Go Lakers!). Enjoy whatever it is I write about.
          </p>
          <ul class="mynav">
-            <li><a href="./">Home</a></li>
-            <li><a href="./archive.html">Archive</a></li>
+            <li><a href="/">Home</a></li>
+            <li><a href="/archive.html">Archive</a></li>
             <li><a href="http://github.com/benhirsch24">Github</a></li>
-            <li><a href="./projects.html">Projects</a></li>
+            <li><a href="/projects.html">Projects</a></li>
             <!--<li><a href="#">Resume?</a></li>-->
             <br class="clear" />
          </ul>
 
-         <ul>
-    <li>
-    <a href="./posts/2013-03-18-object-oriented-programming.html">Object Oriented Programming Can Be Useful</a> - March 18, 2013
-</li>
-<li>
-    <a href="./posts/2012-06-02-clever-initial-blog-post-title.html">Clever Initial Blog Post Title</a> - June  2, 2012
-</li>
-
-</ul>
-
+         <h2>Projects</h2>
+<h3><a href="http://github.com/benhirsch24/dairy">Parallel GenSel</a></h3>
+<p>This is my senior project, so it’s still in progress. The goal of the project is to investigate using CUDA to parallelize <a href="http://www.biomedcentral.com/content/supplementary/1471-2105-12-186-s1.pdf">GenSel</a> which is a Genetic Selection program written in C++. Our target for parallelization is the BayesC algorithm (specified in <a href="http://www.gsejournal.org/content/pdf/1297-9686-36-3-261.pdf">this paper</a>) as it’s the currently most used algorithm.</p>
+<h3><a href="http://github.com/benhirsch24/weigtlog">Weightlog</a> (Title in progress)</h3>
+<p>This is my current personal project. I have over 5 years of logged workouts in a couple notebooks and I wanted a tool to analyze them. My plan for this is a simple interface that allows entering past lifting sessions quickly and easily. At 4 sessions a week (possibly an understimation), 52 weeks a year, 5 years, that’s over 800 workouts. I want it to eliminate a lot what I feel is the redundant parts of logging eg warmups but it should still give room for variation (I don’t always do 10 reps with a weight to warm up, but most of the time I do). The main point of it is to visualize and easily parse data about my workouts such as total volume each workout for a lift plotted with how my lift maxes change at the time. Planning to use node.js and possibly angular.js (although I’m not sold on angular yet).</p>
          <div class="footer">
             Copyright <a href="http://benhirsch24.github.com">Ben Hirsch</a>
          </div>

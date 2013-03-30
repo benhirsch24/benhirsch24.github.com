@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html>
+   <head>
+      <title>Ben's Blog - Object Oriented Programming Can Be Useful</title>
+      <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
+      <link href="../css/bootstrap.css" rel="stylesheet" />
+      <link href="../css/bootstrap-responsive.css" rel="stylesheet" />
+      <link href="http://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet" type="text/css">
+      <style>
+         body {
+            font-family: 'PT Sans', sans-serif;
+            font-size: 18px;
+         }
+
+         #aboutme {
+            color: #aaa;
+            font-size: 12px;
+            font-style: italic;
+         }
+
+         .container {
+            max-width: 760px;
+         }
+
+         .container h1 {
+            text-align: center;
+            padding-top:1em;
+         }
+
+         .mynav {
+            border-bottom: 1px solid #000;
+            padding:1em;
+            text-align: center;
+            font-size: 24px;
+         }
+         .mynav li {
+            display: inline;
+            padding:1em;
+         }
+
+         .footer {
+            padding: 2em;
+         }
+
+         .clear { clear: both; }
+
+         #article p {
+            font-size: 16px;
+            line-height: 150%;
+         }
+      </style>
+   </head>
+   <body>
+      <div class="container">
+         <h1>Ben's Blog</h1>
+         <br>
+         <p id="aboutme">
+         Hi I'm Ben. I'm currently an intern at <a href="http://experts-exchange.com">Experts Exchange</a> and I'm graduating Cal Poly San Luis Obispo this Spring with a degree in Computer Science and a minor in Math. My main Computer Science interests include parallel programming, machine learning, programming languages (compilers and type theory especialy), and functional programming. Outside of that I enjoy watching Sci-Fi TV, lifting weights, reading books, and playing basketball (Go Lakers!). Enjoy whatever it is I write about.
+         </p>
+         <ul class="mynav">
+            <li><a href="../">Home</a></li>
+            <li><a href="../archive.html">Archive</a></li>
+            <li><a href="http://github.com/benhirsch24">Github</a></li>
+            <li><a href="../projects.html">Projects</a></li>
+            <!--<li><a href="#">Resume?</a></li>-->
+            <br class="clear" />
+         </ul>
+
+         <div id="article">
+   <h2>Object Oriented Programming Can Be Useful</h2>
+
+   <div class="info">Posted on March 18, 2013</div>
+   <br>
+
+   <p>This actually hurts a little bit to say, considering that I’m the one usually complaining (when I honestly don’t need to) about <em>having</em> to work in Java, but I’m coming to the realization that Object Oriented programming can actually be useful. I mean, I never wanted it to go away or anything; any paradigm can serve its purpose. I guess I’m just now more willing to admit there’s a nice advantage to having a bunch of global state within one container at times</p>
+<p>Now before I continue I seriously don’t want this post to make it sound like I was ever a person who sounds off with “functional programming rules! imperative dr00lz!” because I’m not. I admit I enjoy reading about and using Haskell a ton, but I also have a lot of fun getting down closer to the metal with C. Additionally, my internship since June has been in Java and I do believe Java is the right choice for the job. My senior project (which is what inspired this post) is a nicely sized codebase I inherited all written in C++. The project is to investigate parallelizing a popular Genetic Selection piece of software using CUDA. I just wrote what essentially amounts to a SingletonProxy and decided I had to post about how hilarious that was; mostly because I don’t believe I have any programmer friends who I could share these thoughts with and “SingletonProxy” is a hilarious name.</p>
+<p>I always read about eliminating state, especially mutable state. Object Oriented Programming is sometimes seem as a “Bad Thing” because within an object there’s some amount of state that is implicitly added whenever you call a member function. There’s always “this” or “self” available to you. But from a global perspective, ie your whole program, each object has its own state entirely local to it. In functional programming the goal is often to eliminate this; ideally within a function you can interact only with inputs, outputs, and other defined values. But in object oriented programming, each function within an object also has access to that object’s internal state that the other member functions can interact with.</p>
+<p>My main problem with this is that it can be unreadable at times because it adds a layer of complexity on understanding functionality. Functions often refer to member variables which aren’t defined within the function. This leads you to hunt down where they were declared and where they are mutated so you know how it might have changed since it was initialized. Finally after you’ve sussed out the life and flow of this one variable, you jump back into the function you were originally analyzing but by this point you’ve lost your place. This happens all too often to me as I’m reading new code and I find that frustrating.</p>
+<p>But as I said lately I’ve been working CUDA and a codebase that uses <a href="http://eigen.tuxfamily.org/index.php?title=Main_Page">Eigen</a> for their matrix math. I’m trying to get an interface between the Eigen data and the CUDA Thrust and cuBLAS libraries (to speed up linear algebra in a genetic selection sampling program) and for this case I just want a Map to stay there at all times. This Map should map between the Eigen objects I’m dealing with and the data on the GPU that I want to operate on. The key thing is that every time I want to do my sampling function I don’t want to have to re-cudaMalloc space for the data I’m providing, I just want my device pointer and data to be hanging out in my SingletonProxy’s space somewhere. I call it a SingletonProxy because I only need one of these during the execution of the program, and because Eigen can’t be compiled by nvcc (the CUDA compiler) the C++ code using Eigen needs to remain separate from the CUDA code that deals with the data. So this class I’ve come up with serves as a proxy between the two.</p>
+<p>And of course there are times when I get frustrated by the complexity added by OOP. Inheritance specifically. Right now I’m looking through ALL of Eigen’s documentation just to figure out where a method is defined to see how it’s used. I just need to know if the data() method for Matrices and Vectors gives me a pointer to the internal storage so that I can copy from the GPU directly into an Eigen object, but it’s hard to tell exactly where data() is even defined! First I started in MatrixBase, then I moved to DenseBase, PlainObjectBase, and yet I still can’t find it! This is when object-orientation gets frustrating. Inheritance means classes don’t need to have defined the function in that code file so when you go looking for a method that gets used, it can be a bit of a wild goose chase at times.</p>
+<p>Using Eclipse at work really helps with the Java codebase, but it also can be very annoying. Often going to the definition of a function (F3) brings me to the abstract function signature in an abstract class. This is completely useless to me. Then I have to look at the type hierarchy and go hunting just to find out what a function is doing even though the function is within the class I’m working on! I know the advantages of inheritance and I know having the function defined elsewhere is very useful in a black box, at the top looking down sense. But working on the code itself, the separation from code file to function definition can be frustrating. Perhaps a programming language where you have to add at the top (or bottom) of each class a function prototype of some sort that specifies in which part of the type hierarchy a function is defined would be helpful. But anyways this is a common annoyance for me.</p>
+<p>Anyways, this is totally a rant. There’s a ton of use cases for OOP and it can make code modular, composable, etc etc. But I think I prefer to use OOP only when completely necessary. I tend to stick to a straightforward procedural style with mostly pure functions and global mutable state only when completely necessary (which is something most agree on anyways).</p>
+<p>Side note: Every open source documentation should totally have a link to the source of each module it’s discussing. It’s the most useful thing ever for understanding a library. I’ve loved looking directly at the source for Eigen whenever I’m confused on an API method. JQuery could really benefit from this. It’s a small, fairly readable library. Including a link to the source for each method would be infinitely useful.</p>
+</div>
+
+         <div class="footer">
+            Copyright <a href="http://benhirsch24.github.com">Ben Hirsch</a>
+         </div>
+      </div>
+   </body>
+</html>
