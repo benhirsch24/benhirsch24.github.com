@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+   <head>
+      <title>Ben's Blog - Fun With Elm: A 5/3/1 Calculator</title>
+      <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
+      <link href="../css/bootstrap.css" rel="stylesheet" />
+      <link href="../css/bootstrap-responsive.css" rel="stylesheet" />
+      <link href="http://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet" type="text/css">
+      <style>
+         body {
+            font-family: 'PT Sans', sans-serif;
+            font-size: 18px;
+            background-color:#eee;
+         }
+
+         #aboutme {
+            color: #aaa;
+            font-size: 12px;
+            font-style: italic;
+         }
+
+         .container {
+            max-width: 760px;
+            background-color:#fff;
+            padding:.5em;
+            box-shadow: 2px 3px 15px #000;
+         }
+
+         .container h1 {
+            text-align: center;
+            padding-top:1em;
+         }
+
+         .mynav {
+            border-bottom: 1px solid #000;
+            padding:1em;
+            text-align: center;
+            font-size: 24px;
+         }
+         .mynav li {
+            display: inline;
+            padding:1em;
+         }
+
+         .footer {
+            padding: 2em;
+         }
+
+         .clear { clear: both; }
+
+         #article p {
+            font-size: 16px;
+            line-height: 150%;
+         }
+      </style>
+   </head>
+   <body>
+      <div class="container">
+         <h1>Ben's Blog</h1>
+         <br>
+         <ul class="mynav">
+            <li><a href="../">Home</a></li>
+            <li><a href="../archive.html">Archive</a></li>
+            <li><a href="http://github.com/benhirsch24">Github</a></li>
+            <li><a href="../projects.html">Projects</a></li>
+            <!--<li><a href="#">Resume?</a></li>-->
+            <br class="clear" />
+         </ul>
+
+         <div id="article">
+   <h2>Fun With Elm: A 5/3/1 Calculator</h2>
+
+   <div class="info">Posted on June 19, 2013</div>
+   <br>
+
+   <p>Around March my back FINALLY started feeling much better.</p>
+<p>I guess I should start out by saying that in December 2011 I hurt my back while squatting. It was only about two months after I had competed in a powerlifting meet where I squatted 409 lbs, benched 264 lbs, and deadlifted 501 lbs, and <em>of course</em> I was already going hard in the gym again. I found a great groove in doing the competition lifts four times a week, but I think my poor mobility from a much too abbreviated warm up and day after day working slouched in front of a computer at my internship finally paid off in the form of a sudden pain in my lower back at the bottom of a routine 315 lb squat. I was hurt.</p>
+<p>After a few months attempting in vain to work around the injury I finally took a summer off from squatting and spinal loading in general and dedicated myself to getting my core strong, my fascia loose, and my muscles limber. After another few months of gingerly testing out my back with front squats, I was able to find a groove in the back squat (the lift that allows for the most weight – in other words the best lift) and I went back at it. Fast forward to now and my squat is finally back in the mid 300s and all of my time learning and working on my mobility has me feeling great still. But squatting three times a week, while extremely effective for gaining strength quickly, takes a toll on you after a while. In addition I had lost a good 25 to 30 lbs from my peak weight; it was hard to motivate myself to eat so damn much when I wasn’t lifting anywhere near as much as I used to. So my plan was to go with a routine that hit each lift once a week, allowed for higher volume to stimulate muscle gain, and gave me a general monthly plan for slow but steady strength increases. I went with <a href="http://www.flexcart.com/members/elitefts/default.asp?pid=2976">5/3/1</a>.</p>
+<p>5/3/1 is a percentage based lifting plan. The idea is that you take your current 1 rep max, the most weight you can do just once on a lift, and calculate exactly how much weight and how many reps you do for each workout, with a cycle being four weeks long. <a href="http://www.t-nation.com/free_online_article/sports_body_training_performance/how_to_build_pure_strength">Percentages are laid out in this article on T-Nation</a>. There’s plenty of 5/3/1 calculators out there on the internet, I’m sure, but I got a wild hair to use <a href="http://elm-lang.org">Elm</a> which is a language that compiles into HTML and Javascript. It uses <a href="http://elm-lang.org/learn/What-is-FRP.elm">functional reactive programming</a> which is a declarative style of programming for expressing GUIs and interactions on the web. Declarative programming means saying <em>what you want</em> to be displayed rather than <em>how you want</em> it to be displayed. It’s a young language, version 0.8.0.3 at this exact moment, but it seemed mature enough that I could have a fun little two or three day project between graduating and starting to re-focus my brain on my summer research job.</p>
+<p><a href="../static/531.html">You can see the finished product here</a> and <a href="../static/531.elm">grab the Elm source here</a>. I think I changed some names in the article just for clarity of presentation, but the logic should be the same.</p>
+<p>So what does a 5/3/1 calculator need to do?</p>
+<h3 id="goals">Goals</h3>
+<ul>
+<li>Enter weights for each of the overhead press, squat, deadlift, and bench press</li>
+<li>Display them in a table, listing the weight and reps for each set for each week of a cycle</li>
+<li>Be able to display more than one month (lifting is a long-term activity no matter how many infomercials tell you otherwise)</li>
+</ul>
+<h2 id="starting-out">Starting Out</h2>
+<p>How to start out? Well this a functional, declarative language right? So the first thing to focus on is what data is needed to be input. Elm represents inputs from the “outside world” as Signals carrying a value. A text input box would result in a type of <code>Signal String</code> which means that the String you enter in the box can change. <a href="http://people.seas.harvard.edu/~chong/abstracts/CzaplickiC13.html">According to the paper submitted to ICFP</a>, when any signal is updated there’s a global dispatcher that updates every Signal on the page with an “alert” saying the value has changed and the new value, or an alert that says it hasn’t changed and the old value.</p>
+<p>Anyways, we want to enter our 1RMs for the overhead press, bench press, squat, and deadlift, along with the number of months to display. In addition, there are specific percentages that the 1RMs get multiplied by for each set of each week along with the number of reps per set. Let’s model those as records.</p>
+<pre><code>import Graphics.Input as I
+import Window
+
+type Week = { num : Int, multipliers : [Float], reps : [Int] }
+type Weight = Float
+
+week1 : Week
+week1 = { num = 1, multipliers = [0.65, 0.75, 0.85], reps = [5,5,5] }
+
+week2 : Week
+week2 = { num = 2, multipliers = [0.70, 0.80, 0.90], reps = [3,3,3] }
+
+week3 : Week
+week3 = { num = 3, multipliers = [0.75, 0.85, 0.95], reps = [5,3,1] }
+
+week4 : Week
+week4 = { num = 4, multipliers = [0.40, 0.50, 0.60], reps = [5,5,5] }
+
+lifts = [&quot;Overhead Press&quot;, &quot;Bench Press&quot;, &quot;Squat&quot;, &quot;Deadlift&quot;]
+
+liftHeadings : Element
+liftHeadings = flow down . map plainText &lt;| lifts
+
+replicate n v = if n == 0 then [] else v :: replicate (n-1) v
+
+(howManyMonthsInp, howManyMonthsSig) = I.field &quot;1&quot;
+(weightFlds, weightSigs) = unzip . map I.field &lt;| (replicate 4 &quot;0 lbs&quot;)</code></pre>
+<p>Hopefully the first few lines are fairly obvious. <code>Week</code> is a type synonym for a record that will represent a Week in the program, which is an Integer (which week this is for display purposes later), a list of multipliers for each set, and how many reps to do for each set. Then we define weeks 1-4 very simply. <code>lifts</code> is a simple list of Strings. The first Elm-y thing that you might notice is <code>liftHeadings</code>. Well first of all, Elm uses a single colon <code>:</code> for its type annotations and funnily enough it uses the double colon <code>::</code> for Cons. Elm is not Haskell, it’s just written in Haskell. Elm is also not meant to have a one-to-one correspondence to HTML, which is what tripped me up a bit as I started to learn it. <code>liftHeadings</code> is a single <code>Element</code> that we will use later. <code>plainText</code> has type <code>String -&gt; Element</code>, so obviously it is used to display Strings on a page. <code>flow</code> has type <code>Direction -&gt; [Element] -&gt; Element</code>. In a very high-level sense, flow is just a way to organize some group of Elements in a simple direction, one of up, down, left, right, outward, inward, strange, or charmed. Well… those last two are quarks, nevermind haha. So liftHeadings will have each lift “flowing” downwards in a column of Strings. Also <code>(.)</code> is still compose in Elm, but <code>(&lt;|)</code> takes the place of <code>($)</code>.</p>
+<p>Then we get to the actual inputs. Ignore replicate for a second and let’s look at the first tuple. <code>Graphics.Input.field</code> (or since we imported it qualified as I, <code>I.field</code>) has type <code>String -&gt; (Signal Element, Signal String)</code>. So you construct two signals, the first containing the actual text input Element and the second containing the String which varies as you type. The String given to <code>field</code> just gives the placeholder text.</p>
+<p>The weight fields looks intimidating, so let’s just take it piece by piece starting from the right. I replicated the string <code>&quot;0 lbs&quot;</code> four times ie <code>[&quot;0 lbs&quot;,&quot;0 lbs&quot;,&quot;0 lbs&quot;,&quot;0 lbs&quot;]</code>, one for each lift. Elm, as I said before, is still a bit young so replicate isn’t in the standard prelude yet, but it’s an easy function to write. Then each “0 lbs” of course will become a field, so we map I.field onto it. At this point, <code>map I.field &lt;| replicate 4 &quot;0 lbs&quot;</code> is <code>[(Signal Element, Signal String)]</code> but really we want to deal with the Elements in one place, and the Strings in another. <code>unzip</code> will take apart the list of tuples into a tuple of lists ie <code>[(a, b)] -&gt; ([a], [b])</code>. <code>weightFlds</code> is a list of <code>Signal Element</code>s and weightSigs is a list of <code>Signal String</code>s.</p>
+<p>Now the data is available, <em>somewhere</em>, to be used. The obvious next step is to display it.</p>
+<h2 id="display">Display</h2>
+<p>When I first started to write this little calculator I was trying too hard to think of Elm -&gt; HTML. I wanted to basically be writing HTML in this language and the only way to do that is write using Elm’s markdown syntax, and I was constructing tables and making little helper functions that construct <code>&lt;td&gt;</code>s and <code>&lt;tr&gt;</code>s. Eugh. But after <a href="https://groups.google.com/forum/#!forum/elm-discuss">searching around the Elm google group for a while</a> I found a sweet little way to organize a table that made the flow (hah) of Elm click for me.</p>
+<pre><code>table : Int -&gt; Int -&gt; [[Element]] -&gt; Element
+table columnWidth rowHeight cells =
+   let row = flow right . map (container columnWidth rowHeight middle)
+   in  flow down (map row cells)</code></pre>
+<p>What is a table (in the abstract) anyways? It’s a bunch of rows, each of which have some cells contained in them. What does this table function do? It takes a width for each column and a height for each row, and a list of rows (each of which is made up of a list of cells), and creates one table Element out of all of them. The rows flow down, and the cells in each row flow to the right. It’s pretty simple, and all of a sudden this Elm thing is making sense.</p>
+<p>For the actual data in the cells though, let’s start by decomposing each piece. We need to display:</p>
+<ul>
+<li>A single <strong>Set</strong> which is how much Weight to do for how many Reps</li>
+<li>A <strong>Set Cell</strong>, which will have each Set for each lift flowing downwards</li>
+<li>A <strong>Week</strong> which is a row of Set Cells</li>
+<li>A <strong>Month</strong> which is a table of Weeks</li>
+<li>A way to display <strong>N Number Of Months</strong> flowing downwards</li>
+</ul>
+<p>Code:</p>
+<pre><code>-- display_set takes the Reps and Weight and returns a plainText Element
+display_set : Int -&gt; Weight -&gt; Element
+display_set rs w = 
+   let setWeight = show . round &lt;| w
+       reps      = show rs
+   in  plainText &lt;| setWeight ++ &quot; lbs x &quot; ++ reps ++ &quot; reps&quot;
+
+-- display_set_cell takes each 1RM, the multiplier for the set, and the number of reps
+--              and returns an Element with each set for each weight flowing down
+display_set_cell : [Weight] -&gt; Float -&gt; Int -&gt; Element
+display_set_cell ws mult reps =
+   let weights = map (\w -&gt; w * mult) ws
+       elems   = map (display_set reps) weights
+   in  flow down elems
+
+-- display_week should return a row containing the Week &quot;header&quot;, another cell listing the lifts,
+--                              then each set for each weight in the week
+display_week : [Weight] -&gt; Week -&gt; [Element]
+display_week weights week = 
+   let sets       = zipWith (display_set_cell weights) week.multipliers week.reps
+       weekHeader = plainText &lt;| &quot;Week &quot; ++ show week.num
+   in  [ weekHeader, liftHeadings ] ++ sets
+
+-- display_531_month takes the width of the table, the 1RMs, and returns a table for one month of 531
+display_531_month : Int -&gt; [Weight] -&gt; Element
+display_531_month width weights =
+   let headings  = map plainText [&quot;Week&quot;, &quot;Lifts&quot;, &quot;Set 1&quot;, &quot;Set 2&quot;, &quot;Set 3&quot;] -- headings : [Element]
+       ws        = map (display_week weights) [week1, week2, week3, week4] -- [[Element]]
+       cells     = [ headings ] ++ ws -- [[Element]]
+       colWidth  = width `div` 4
+   in  table colWidth 100 cells
+
+-- display_month takes the 1RMs, the width of the table, and the month number, 
+--                     and returns a table with a header for the month number
+display_month : [Weight] -&gt; Int -&gt; Int -&gt; Element
+display_month ws wdth mnum = 
+   let weights = map (\w -&gt; w + (toFloat mnum - 1.0) * 5.0) ws
+   in  flow down [ text . bold . toText &lt;| (&quot;Month &quot; ++ show mnum), display_531_month wdth weights ]
+
+-- display_months takes the width of the table, the 1RMs, and how many months to display,
+--                      and returns a list of the month Elements
+display_months : Int -&gt; [Weight] -&gt; num -&gt; [Element]
+display_months wdth ws num = map (display_month ws wdth) [1..num]</code></pre>
+<p>I feel this code is very self-explanatory after most of my preface from before, but I’ll highlight some pieces right now. First thing that I would notice is that there’s no mention of Signals here yet. Each piece of code is pure; given the same weights, width of table, and number of months to display to <code>display_months</code>, you’ll always get back the same table display. To lay the display out I only used the <code>flow</code> functions to layout my text along with <code>plainText</code> to display Strings and relied on simple functional constructs like map and zipWith to combine them with the data.</p>
+<p>Also on the 5/3/1 specific side, each month you add 5 lbs to your 1RMs <em>before</em> the multiplier calculation, which is shown in the <code>weights</code> binding in <code>display_month</code>, and we subtract 1.0 from <code>mnum</code> because the default (below) for mnum will be 1, but we don’t want to add 5lbs to our first month.</p>
+<h3 id="final-display-with-main">Final Display With Main</h3>
+<p>Here’s the final pieces to tie it together:</p>
+<pre><code>fromJust d m = case m of
+   Just v  -&gt; v
+   Nothing -&gt; d
+
+heading = [markdown|
+&lt;h1&gt;5/3/1 Calculator&lt;/h1&gt;
+Uses percentages from [How to build pure strength](http://www.t-nation.com/free_online_article/sports_body_training_performance/how_to_build_pure_strength)
+&lt;h2&gt;Enter your 1RMs:&lt;/h2&gt;
+|]
+
+display_fields : String -&gt; Element -&gt; Element
+display_fields ex field = flow right [ plainText (ex ++ &quot;:   &quot;), field ]
+
+display_inputs : [Element] -&gt; Element -&gt; Element
+display_inputs flds howMany= 
+   let fldElems = zipWith display_fields lifts flds
+       fst2  = take 2 fldElems
+       snd2  = drop 2 fldElems
+       months = [ plainText &quot;How many months to generate:  &quot;, howMany ]
+       elems = intersperse (spacer 0 10) . map (flow right) &lt;| [months, fst2, snd2]
+   in  flow down elems
+
+inputs : Signal Element
+inputs = display_inputs &lt;~ (combine weightFlds) ~ howManyMonthsInp
+
+display : Int -&gt; Element -&gt; [String] -&gt; String -&gt; Element
+display screenWidth inputFields weightInputs howMany = 
+   let fields = flow down [ inputFields, spacer 0 20 ]
+       weights = map (fromJust 0.0 . readFloat) weightInputs
+       howManyMonths = fromJust 1 . readInt &lt;| howMany
+       tableWidth = screenWidth `div` 2
+       elems = heading :: fields :: display_months tableWidth weights howManyMonths
+       disp = flow down elems
+       elemHeight = heightOf disp
+   in  container (screenWidth - 50) elemHeight midTop disp
+
+main = display &lt;~ Window.width ~ inputs ~ (combine weightSigs) ~ howManyMonthsSig</code></pre>
+<p>I had to define a function <code>fromJust</code> to pry apart a Maybe value with a default because as I said before, Elm’s prelude is still young. The <code>heading</code> of the page uses markdown. <code>display_fields</code> and <code>display_inputs</code> are similar to the other display functions in that they are pure functions that just lay out some text and some inputs using the flow functions. <code>inputs</code> is a Signal which lifts <code>display_inputs</code> onto the inputs that were constructed waaay back up at the top of this now not-so-little tutorial from Graphics.Input.field. <code>combine</code> is a function which combines a list of Signals into a Signal giving a list of the values ie <code>combine : [Signal a] -&gt; Signal [a]</code>. Last but not least of the display functions, <code>display</code> handles the full application display and logic like parsing the weights and month number inputs into Floats and an Int, and uses all of the previous display functions to do everything.</p>
+<p>Finally <code>main</code>, according to the paper linked previously, can be either an Element, which means that there is no dynamic-ness to the web page, or it can be a Signal Element, meaning it is lifted onto the inputs. Elm has nice notation using <code>&lt;~</code> for lift and <code>~</code> for applying a lifted Signal function onto other signals. <code>display</code> is used as the main dispatch and finally returns an Element to display! Window.width is used to get the possibly varying width of the browser window, inputs is the Signal that carries the input Elements, weightSigs is the combined Signal of strings and howManyMonthsSig is the same for the number of months as a string.</p>
+<h3 id="final-thoughts-on-elm">Final Thoughts on Elm</h3>
+<p>I figured after learning this language/framework I would give some thoughts about it. One conceptual hurdle I had was thinking in terms of Elm, not HTML and Javascript. I kept thinking about it compiling into HTML, when really I needed to think about the flow and layout of what I wanted displayed. Signals also took a bit to grok, but I think I’ve got it down. Define your pure functions that say what you want displayed and lift these functions onto the Signals who carry the values you want to display. I couldn’t understand why <code>Graphics.Input.field</code> created a <code>(Signal Element, Signal String)</code> rather than <code>(Element, Signal String)</code>, but after reading the paper and learning how when any Signal is updated all Signals are notified, it makes sense that the input Element has some listener defined on it to notify any function that’s lifted onto the <code>Signal String</code> value.</p>
+<p>The type-checker and compiler is also a bit young, so sometimes your elm file will compile but then in the browser nothing is displayed. But by using the Developer Tools in Chrome it’s pretty easy to figure out what issues are present. I think the implementation of the compiler is also pretty easy to read when you run into those problems that don’t have an immediately obvious solution. Most of the Elm libraries are written in Elm and the rest are written in the Javascript runtime with a type signature given in the Elm library files. I also don’t think it’s ready for just any general purpose “web app.” I originally set out to use Elm to make an RSS reader, but how buttons work wasn’t immediately apparent to me. Elm seems very suited for reactive applications where you do something and everything immediately updates like this calculator rather than an application where you click and the state changes. Maybe in the future as I learn it’ll become apparent to me, probably using their <code>Automata</code>, but I think I can just stick to a normal HTML + CSS + Javascript flow for most applications.</p>
+<p>In summary I think that Elm is a fun, pretty language to use for reactive web pages. I’d love to contribute a bit if I can find something to do, and I definitely will use it in the future. A Tetris game might be in the works sometime soon…</p>
+</div>
+
+         <div class="footer">
+            <p id="aboutme">
+            Hi I'm Ben. I graduated Cal Poly San Luis Obispo with a degree in Computer Science and a minor in Mathematics (mostly differential equations because no one told me how cool Abstract Algebra could be) and my job this summer is doing research on speeding up a genetic selection algorithm using CUDA. My main Computer Science interests include parallel and concurrent programming paradigms, type theory, compilers and transpilers, and functional programming. Outside of that I enjoy watching Sci-Fi, lifting weights, reading books, and playing basketball (go Lakers!). Enjoy whatever it is I write about.
+            </p>
+            Copyright <a href="http://benhirsch24.github.com">Ben Hirsch</a>
+         </div>
+      </div>
+   </body>
+</html>
