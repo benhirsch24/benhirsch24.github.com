@@ -1,80 +1,40 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
    <head>
-      <title>Ben's Blog - Fun With Elm: A 5/3/1 Calculator</title>
+      <link href="http://fonts.googleapis.com/css?family=Ubuntu" rel="stylesheet" type="text/css">
+      <title>Fun With Elm: A 5/3/1 Calculator - Ben's Blog</title>
+      <link rel="stylesheet" href="../css/pure-min.css">
+      <link rel="stylesheet" href="../css/style.css">
+      <link rel="stylesheet" href="http://yandex.st/highlightjs/7.3/styles/pojoaque.min.css">
+      <script src="http://yandex.st/highlightjs/7.3/highlight.min.js"></script>
       <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-      <link href="../css/bootstrap.css" rel="stylesheet" />
-      <link href="../css/bootstrap-responsive.css" rel="stylesheet" />
-      <link href="http://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet" type="text/css">
-      <style>
-         body {
-            font-family: 'PT Sans', sans-serif;
-            font-size: 18px;
-            background-color:#eee;
-         }
-
-         #aboutme {
-            color: #aaa;
-            font-size: 12px;
-            font-style: italic;
-         }
-
-         .container {
-            max-width: 760px;
-            background-color:#fff;
-            padding:.5em;
-            box-shadow: 2px 3px 15px #000;
-         }
-
-         .container h1 {
-            text-align: center;
-            padding-top:1em;
-         }
-
-         .mynav {
-            border-bottom: 1px solid #000;
-            padding:1em;
-            text-align: center;
-            font-size: 24px;
-         }
-         .mynav li {
-            display: inline;
-            padding:1em;
-         }
-
-         .footer {
-            padding: 2em;
-         }
-
-         .clear { clear: both; }
-
-         #article p {
-            font-size: 16px;
-            line-height: 150%;
-         }
-      </style>
    </head>
    <body>
-      <div class="container">
-         <h1>Ben's Blog</h1>
-         <br>
-         <ul class="mynav">
-            <li><a href="../">Home</a></li>
-            <li><a href="../archive.html">Archive</a></li>
-            <li><a href="http://github.com/benhirsch24">Github</a></li>
-            <li><a href="../projects.html">Projects</a></li>
-            <!--<li><a href="#">Resume?</a></li>-->
-            <br class="clear" />
-         </ul>
-
-         <div id="article">
-   <h2>Fun With Elm: A 5/3/1 Calculator</h2>
-
-   <div class="info">Posted on June 19, 2013</div>
-   <br>
-
-   <p>Around March my back FINALLY started feeling much better.</p>
+      <div class="pure-g-r" id="layout">
+         <div class="sidebar pure-u">
+            <h1 id="name"><a href="../">Ben Hirsch</a></h1>
+            <ul id="nav">
+               <li><a href="../">Home</a></li>
+               <li><a href="../archive.html">Post Archive</a></li>
+               <li><a href="http://github.com/benhirsch24">Github</a></li>
+               <li><a href="http://linkedin.com/in/benhirsch24">LinkedIn</a></li>
+               <li><a href="../about.html">About Me</a></li>
+            </ul>
+            <div class="built">
+               This site built using <a href="jaspervdj.be/hakyll">Hakyll</a>.
+            </div>
+         </div>
+         <div class="content pure-u-1">
+            <div class="posts">
+               <section class="post">
+   <header class="post-head">
+      <h2 class="post-title">Fun With Elm: A 5/3/1 Calculator</h2>
+   </header>
+   <section class="post-body">
+      <p>Around March my back FINALLY started feeling much better.</p>
 <p>I guess I should start out by saying that in December 2011 I hurt my back while squatting. It was only about two months after I had competed in a powerlifting meet where I squatted 409 lbs, benched 264 lbs, and deadlifted 501 lbs, and <em>of course</em> I was already going hard in the gym again. I found a great groove in doing the competition lifts four times a week, but I think my poor mobility from a much too abbreviated warm up and day after day working slouched in front of a computer at my internship finally paid off in the form of a sudden pain in my lower back at the bottom of a routine 315 lb squat. I was hurt.</p>
+<!--more-->
+
 <p>After a few months attempting in vain to work around the injury I finally took a summer off from squatting and spinal loading in general and dedicated myself to getting my core strong, my fascia loose, and my muscles limber. After another few months of gingerly testing out my back with front squats, I was able to find a groove in the back squat (the lift that allows for the most weight – in other words the best lift) and I went back at it. Fast forward to now and my squat is finally back in the mid 300s and all of my time learning and working on my mobility has me feeling great still. But squatting three times a week, while extremely effective for gaining strength quickly, takes a toll on you after a while. In addition I had lost a good 25 to 30 lbs from my peak weight; it was hard to motivate myself to eat so damn much when I wasn’t lifting anywhere near as much as I used to. So my plan was to go with a routine that hit each lift once a week, allowed for higher volume to stimulate muscle gain, and gave me a general monthly plan for slow but steady strength increases. I went with <a href="http://www.flexcart.com/members/elitefts/default.asp?pid=2976">5/3/1</a>.</p>
 <p>5/3/1 is a percentage based lifting plan. The idea is that you take your current 1 rep max, the most weight you can do just once on a lift, and calculate exactly how much weight and how many reps you do for each workout, with a cycle being four weeks long. <a href="http://www.t-nation.com/free_online_article/sports_body_training_performance/how_to_build_pure_strength">Percentages are laid out in this article on T-Nation</a>. There’s plenty of 5/3/1 calculators out there on the internet, I’m sure, but I got a wild hair to use <a href="http://elm-lang.org">Elm</a> which is a language that compiles into HTML and Javascript. It uses <a href="http://elm-lang.org/learn/What-is-FRP.elm">functional reactive programming</a> which is a declarative style of programming for expressing GUIs and interactions on the web. Declarative programming means saying <em>what you want</em> to be displayed rather than <em>how you want</em> it to be displayed. It’s a young language, version 0.8.0.3 at this exact moment, but it seemed mature enough that I could have a fun little two or three day project between graduating and starting to re-focus my brain on my summer research job.</p>
 <p><a href="../static/531.html">You can see the finished product here</a> and <a href="../static/531.elm">grab the Elm source here</a>. I think I changed some names in the article just for clarity of presentation, but the logic should be the same.</p>
@@ -225,13 +185,10 @@ main = display &lt;~ Window.width ~ inputs ~ (combine weightSigs) ~ howManyMonth
 <p>I figured after learning this language/framework I would give some thoughts about it. One conceptual hurdle I had was thinking in terms of Elm, not HTML and Javascript. I kept thinking about it compiling into HTML, when really I needed to think about the flow and layout of what I wanted displayed. Signals also took a bit to grok, but I think I’ve got it down. Define your pure functions that say what you want displayed and lift these functions onto the Signals who carry the values you want to display. I couldn’t understand why <code>Graphics.Input.field</code> created a <code>(Signal Element, Signal String)</code> rather than <code>(Element, Signal String)</code>, but after reading the paper and learning how when any Signal is updated all Signals are notified, it makes sense that the input Element has some listener defined on it to notify any function that’s lifted onto the <code>Signal String</code> value.</p>
 <p>The type-checker and compiler is also a bit young, so sometimes your elm file will compile but then in the browser nothing is displayed. But by using the Developer Tools in Chrome it’s pretty easy to figure out what issues are present. I think the implementation of the compiler is also pretty easy to read when you run into those problems that don’t have an immediately obvious solution. Most of the Elm libraries are written in Elm and the rest are written in the Javascript runtime with a type signature given in the Elm library files. I also don’t think it’s ready for just any general purpose “web app.” I originally set out to use Elm to make an RSS reader, but how buttons work wasn’t immediately apparent to me. Elm seems very suited for reactive applications where you do something and everything immediately updates like this calculator rather than an application where you click and the state changes. Maybe in the future as I learn it’ll become apparent to me, probably using their <code>Automata</code>, but I think I can just stick to a normal HTML + CSS + Javascript flow for most applications.</p>
 <p>In summary I think that Elm is a fun, pretty language to use for reactive web pages. I’d love to contribute a bit if I can find something to do, and I definitely will use it in the future. A Tetris game might be in the works sometime soon…</p>
-</div>
+   </section>
+</section>
 
-         <div class="footer">
-            <p id="aboutme">
-            Hi I'm Ben. I graduated Cal Poly San Luis Obispo with a degree in Computer Science and a minor in Mathematics (mostly differential equations because no one told me how cool Abstract Algebra could be) and my job this summer is doing research on speeding up a genetic selection algorithm using CUDA. My main Computer Science interests include parallel and concurrent programming paradigms, type theory, compilers and transpilers, and functional programming. Outside of that I enjoy watching Sci-Fi, lifting weights, reading books, and playing basketball (go Lakers!). Enjoy whatever it is I write about.
-            </p>
-            Copyright <a href="http://benhirsch24.github.com">Ben Hirsch</a>
+            </div>
          </div>
       </div>
    </body>

@@ -1,79 +1,39 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
    <head>
-      <title>Ben's Blog - Go in Elm</title>
+      <link href="http://fonts.googleapis.com/css?family=Ubuntu" rel="stylesheet" type="text/css">
+      <title>Go in Elm - Ben's Blog</title>
+      <link rel="stylesheet" href="../css/pure-min.css">
+      <link rel="stylesheet" href="../css/style.css">
+      <link rel="stylesheet" href="http://yandex.st/highlightjs/7.3/styles/pojoaque.min.css">
+      <script src="http://yandex.st/highlightjs/7.3/highlight.min.js"></script>
       <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-      <link href="../css/bootstrap.css" rel="stylesheet" />
-      <link href="../css/bootstrap-responsive.css" rel="stylesheet" />
-      <link href="http://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet" type="text/css">
-      <style>
-         body {
-            font-family: 'PT Sans', sans-serif;
-            font-size: 18px;
-            background-color:#eee;
-         }
-
-         #aboutme {
-            color: #aaa;
-            font-size: 12px;
-            font-style: italic;
-         }
-
-         .container {
-            max-width: 760px;
-            background-color:#fff;
-            padding:.5em;
-            box-shadow: 2px 3px 15px #000;
-         }
-
-         .container h1 {
-            text-align: center;
-            padding-top:1em;
-         }
-
-         .mynav {
-            border-bottom: 1px solid #000;
-            padding:1em;
-            text-align: center;
-            font-size: 24px;
-         }
-         .mynav li {
-            display: inline;
-            padding:1em;
-         }
-
-         .footer {
-            padding: 2em;
-         }
-
-         .clear { clear: both; }
-
-         #article p {
-            font-size: 16px;
-            line-height: 150%;
-         }
-      </style>
    </head>
    <body>
-      <div class="container">
-         <h1>Ben's Blog</h1>
-         <br>
-         <ul class="mynav">
-            <li><a href="../">Home</a></li>
-            <li><a href="../archive.html">Archive</a></li>
-            <li><a href="http://github.com/benhirsch24">Github</a></li>
-            <li><a href="../projects.html">Projects</a></li>
-            <!--<li><a href="#">Resume?</a></li>-->
-            <br class="clear" />
-         </ul>
+      <div class="pure-g-r" id="layout">
+         <div class="sidebar pure-u">
+            <h1 id="name"><a href="../">Ben Hirsch</a></h1>
+            <ul id="nav">
+               <li><a href="../">Home</a></li>
+               <li><a href="../archive.html">Post Archive</a></li>
+               <li><a href="http://github.com/benhirsch24">Github</a></li>
+               <li><a href="http://linkedin.com/in/benhirsch24">LinkedIn</a></li>
+               <li><a href="../about.html">About Me</a></li>
+            </ul>
+            <div class="built">
+               This site built using <a href="jaspervdj.be/hakyll">Hakyll</a>.
+            </div>
+         </div>
+         <div class="content pure-u-1">
+            <div class="posts">
+               <section class="post">
+   <header class="post-head">
+      <h2 class="post-title">Go in Elm</h2>
+   </header>
+   <section class="post-body">
+      <p>I’m not going to talk about this too much, but last weekend I spent the morning (~3 hours) starting to make the ancient game Go in Elm. I started with the game framework on the Elm website.</p>
+<!--more-->
 
-         <div id="article">
-   <h2>Go in Elm</h2>
-
-   <div class="info">Posted on June 26, 2013</div>
-   <br>
-
-   <p>I’m not going to talk about this too much, but last weekend I spent the morning (~3 hours) starting to make the game Go in Elm. I started with the game framework on the Elm website.</p>
 <pre><code>import Window
 import Mouse
 
@@ -254,13 +214,10 @@ main = display &lt;~ Window.width ~ gameState ~ userInput ~ Mouse.isDown</code><
 <p>Something that really frustrated me is that the turn display won’t change. I’ve modified the HTML, throwing <code>console.log</code>s in to verify that indeed, the GameState’s turn has changed (and it’ll alternate placing black and white pieces) but somehow the display just won’t change. Annoying.</p>
 <p>But overall it was pretty cool I could get it up and running in 2-3 hours. Maybe I’ll finish it some weekend, but right now I felt like moving on to working on a compiler using LLVM.</p>
 <p><a href="http://benhirsch24.github.io/static/Go.html">Here’s the current state</a>.</p>
-</div>
+   </section>
+</section>
 
-         <div class="footer">
-            <p id="aboutme">
-            Hi I'm Ben. I graduated Cal Poly San Luis Obispo with a degree in Computer Science and a minor in Mathematics (mostly differential equations because no one told me how cool Abstract Algebra could be) and my job this summer is doing research on speeding up a genetic selection algorithm using CUDA. My main Computer Science interests include parallel and concurrent programming paradigms, type theory, compilers and transpilers, and functional programming. Outside of that I enjoy watching Sci-Fi, lifting weights, reading books, and playing basketball (go Lakers!). Enjoy whatever it is I write about.
-            </p>
-            Copyright <a href="http://benhirsch24.github.com">Ben Hirsch</a>
+            </div>
          </div>
       </div>
    </body>

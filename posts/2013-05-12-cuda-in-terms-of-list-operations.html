@@ -1,79 +1,39 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
    <head>
-      <title>Ben's Blog - CUDA In Terms of List Operations</title>
+      <link href="http://fonts.googleapis.com/css?family=Ubuntu" rel="stylesheet" type="text/css">
+      <title>CUDA In Terms of List Operations - Ben's Blog</title>
+      <link rel="stylesheet" href="../css/pure-min.css">
+      <link rel="stylesheet" href="../css/style.css">
+      <link rel="stylesheet" href="http://yandex.st/highlightjs/7.3/styles/pojoaque.min.css">
+      <script src="http://yandex.st/highlightjs/7.3/highlight.min.js"></script>
       <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-      <link href="../css/bootstrap.css" rel="stylesheet" />
-      <link href="../css/bootstrap-responsive.css" rel="stylesheet" />
-      <link href="http://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet" type="text/css">
-      <style>
-         body {
-            font-family: 'PT Sans', sans-serif;
-            font-size: 18px;
-            background-color:#eee;
-         }
-
-         #aboutme {
-            color: #aaa;
-            font-size: 12px;
-            font-style: italic;
-         }
-
-         .container {
-            max-width: 760px;
-            background-color:#fff;
-            padding:.5em;
-            box-shadow: 2px 3px 15px #000;
-         }
-
-         .container h1 {
-            text-align: center;
-            padding-top:1em;
-         }
-
-         .mynav {
-            border-bottom: 1px solid #000;
-            padding:1em;
-            text-align: center;
-            font-size: 24px;
-         }
-         .mynav li {
-            display: inline;
-            padding:1em;
-         }
-
-         .footer {
-            padding: 2em;
-         }
-
-         .clear { clear: both; }
-
-         #article p {
-            font-size: 16px;
-            line-height: 150%;
-         }
-      </style>
    </head>
    <body>
-      <div class="container">
-         <h1>Ben's Blog</h1>
-         <br>
-         <ul class="mynav">
-            <li><a href="../">Home</a></li>
-            <li><a href="../archive.html">Archive</a></li>
-            <li><a href="http://github.com/benhirsch24">Github</a></li>
-            <li><a href="../projects.html">Projects</a></li>
-            <!--<li><a href="#">Resume?</a></li>-->
-            <br class="clear" />
-         </ul>
+      <div class="pure-g-r" id="layout">
+         <div class="sidebar pure-u">
+            <h1 id="name"><a href="../">Ben Hirsch</a></h1>
+            <ul id="nav">
+               <li><a href="../">Home</a></li>
+               <li><a href="../archive.html">Post Archive</a></li>
+               <li><a href="http://github.com/benhirsch24">Github</a></li>
+               <li><a href="http://linkedin.com/in/benhirsch24">LinkedIn</a></li>
+               <li><a href="../about.html">About Me</a></li>
+            </ul>
+            <div class="built">
+               This site built using <a href="jaspervdj.be/hakyll">Hakyll</a>.
+            </div>
+         </div>
+         <div class="content pure-u-1">
+            <div class="posts">
+               <section class="post">
+   <header class="post-head">
+      <h2 class="post-title">CUDA In Terms of List Operations</h2>
+   </header>
+   <section class="post-body">
+      <p>I believe that one of the reasons I took to CUDA fairly quickly was that I’m a functional programming enthusiast. I took a Programming Languages course my junior year which was taught by <a href="http://www.brinckerhoff.org/clements/">John Clements</a> who contributed to <a href="http://racket-lang.org/">Racket</a>, a Scheme dialect. While the very first day of class looking at a LISPy language was a little odd (parentheses? prefix notation?), I got over it quickly and found that the programming paradigm <em>just fit</em> in my head. That summer I had an internship which consisted of writing and running tests that could take a while (30 minutes to an hour), so I started looking for stuff to learn about and I remembered how much I enjoyed Racket and LISP in general. I didn’t have a great grasp over monads (sorry Dr Clements, I might’ve fallen asleep in class that day) and googling that led me to Haskell, and I haven’t looked back in my love of compilers, static typing, and functional programming since.</p>
+<!--more-->
 
-         <div id="article">
-   <h2>CUDA In Terms of List Operations</h2>
-
-   <div class="info">Posted on May 12, 2013</div>
-   <br>
-
-   <p>I believe that one of the reasons I took to CUDA fairly quickly was that I’m a functional programming enthusiast. I took a Programming Languages course my junior year which was taught by <a href="http://www.brinckerhoff.org/clements/">John Clements</a> who contributed to <a href="http://racket-lang.org/">Racket</a>, a Scheme dialect. While the very first day of class looking at a LISPy language was a little odd (parentheses? prefix notation?), I got over it quickly and found that the programming paradigm <em>just fit</em> in my head. That summer I had an internship which consisted of writing and running tests that could take a while (30 minutes to an hour), so I started looking for stuff to learn about and I remembered how much I enjoyed Racket and LISP in general. I didn’t have a great grasp over monads (sorry Dr Clements, I might’ve fallen asleep in class that day) and googling that led me to Haskell, and I haven’t looked back in my love of compilers, static typing, and functional programming since.</p>
 <p>But not everything needs to be in Haskell (as much as that may hurt to say). CUDA is NVidia’s framework for General Purpose GPU programming (GPGPU) and I see it all in terms of lists and higher order list functions. In my mind, the main list operations are mapping, reducing, sorting, and scanning. These are going to be fairly familiar to anyone with some familiarity with functional programming, so you can skip to the next section if you’re good with mapping, reducing, sorting, and scanning. Here they are in terms of Haskell, which I like because the type signature gives a lot of info about what’s going on:</p>
 <pre><code>map :: (a -&gt; b) -&gt; [a] -&gt; b
 map f []     = []
@@ -193,13 +153,10 @@ int main(int argc, char **argv) {
 <p>Once the result has been stored in out, we copy it back and print it out just to make sure. Numbers!</p>
 <h2 id="conclusion">Conclusion</h2>
 <p>I haven’t written and published a programming article since high school, so I hope this wasn’t too rambling. I feel once you get the ideas behind CUDA programming down it’s very intuitive and easy to use, just like functional programming. Focus on the data coming out of your computations and launch a thread for each out value and everything will fall into place.</p>
-</div>
+   </section>
+</section>
 
-         <div class="footer">
-            <p id="aboutme">
-            Hi I'm Ben. I graduated Cal Poly San Luis Obispo with a degree in Computer Science and a minor in Mathematics (mostly differential equations because no one told me how cool Abstract Algebra could be) and my job this summer is doing research on speeding up a genetic selection algorithm using CUDA. My main Computer Science interests include parallel and concurrent programming paradigms, type theory, compilers and transpilers, and functional programming. Outside of that I enjoy watching Sci-Fi, lifting weights, reading books, and playing basketball (go Lakers!). Enjoy whatever it is I write about.
-            </p>
-            Copyright <a href="http://benhirsch24.github.com">Ben Hirsch</a>
+            </div>
          </div>
       </div>
    </body>

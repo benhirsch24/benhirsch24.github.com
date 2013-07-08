@@ -1,83 +1,42 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
    <head>
-      <title>Ben's Blog - About</title>
+      <link href='http://fonts.googleapis.com/css?family=Ubuntu' rel='stylesheet' type='text/css'>
+      <title>about - Ben's Blog</title>
+      <link rel="stylesheet" href="/css/pure-min.css">
+      <link rel="stylesheet" href="/css/style.css">
+      <link rel="stylesheet" href="http://yandex.st/highlightjs/7.3/styles/pojoaque.min.css">
+      <script src="http://yandex.st/highlightjs/7.3/highlight.min.js"></script>
       <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-      <link href="./css/bootstrap.css" rel="stylesheet" />
-      <link href="./css/bootstrap-responsive.css" rel="stylesheet" />
-      <link href="http://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet" type="text/css">
-      <style>
-         body {
-            font-family: 'PT Sans', sans-serif;
-            font-size: 18px;
-            background-color:#eee;
-         }
-
-         #aboutme {
-            color: #aaa;
-            font-size: 12px;
-            font-style: italic;
-         }
-
-         .container {
-            max-width: 760px;
-            background-color:#fff;
-            padding:.5em;
-            box-shadow: 2px 3px 15px #000;
-         }
-
-         .container h1 {
-            text-align: center;
-            padding-top:1em;
-         }
-
-         .mynav {
-            border-bottom: 1px solid #000;
-            padding:1em;
-            text-align: center;
-            font-size: 24px;
-         }
-         .mynav li {
-            display: inline;
-            padding:1em;
-         }
-
-         .footer {
-            padding: 2em;
-         }
-
-         .clear { clear: both; }
-
-         #article p {
-            font-size: 16px;
-            line-height: 150%;
-         }
-      </style>
    </head>
    <body>
-      <div class="container">
-         <h1>Ben's Blog</h1>
-         <br>
-         <ul class="mynav">
-            <li><a href="./">Home</a></li>
-            <li><a href="./archive.html">Archive</a></li>
-            <li><a href="http://github.com/benhirsch24">Github</a></li>
-            <li><a href="./projects.html">Projects</a></li>
-            <!--<li><a href="#">Resume?</a></li>-->
-            <br class="clear" />
-         </ul>
-
-         <p>Nullam imperdiet sodales orci vitae molestie. Nunc quam orci, pharetra a rhoncus vitae, eleifend id felis. Suspendisse potenti. Etiam vitae urna orci. Quisque pellentesque dignissim felis, egestas tempus urna luctus vitae. In hac habitasse platea dictumst. Morbi fringilla mattis odio, et mattis tellus accumsan vitae.</p>
-<ol style="list-style-type: decimal">
-<li>Amamus Unicode 碁</li>
-<li>Interdum nex magna.</li>
-</ol>
-<p>Vivamus eget mauris sit amet nulla laoreet lobortis. Nulla in diam elementum risus convallis commodo. Cras vehicula varius dui vitae facilisis. Proin elementum libero eget leo aliquet quis euismod orci vestibulum. Duis rhoncus lorem consequat tellus vestibulum aliquam. Quisque orci orci, malesuada porta blandit et, interdum nec magna.</p>
-         <div class="footer">
-            <p id="aboutme">
-            Hi I'm Ben. I graduated Cal Poly San Luis Obispo with a degree in Computer Science and a minor in Mathematics (mostly differential equations because no one told me how cool Abstract Algebra could be) and my job this summer is doing research on speeding up a genetic selection algorithm using CUDA. My main Computer Science interests include parallel and concurrent programming paradigms, type theory, compilers and transpilers, and functional programming. Outside of that I enjoy watching Sci-Fi, lifting weights, reading books, and playing basketball (go Lakers!). Enjoy whatever it is I write about.
-            </p>
-            Copyright <a href="http://benhirsch24.github.com">Ben Hirsch</a>
+      <div class="pure-g-r" id="layout">
+         <div class="sidebar pure-u">
+            <h1 id="name"><a href="/">Ben Hirsch</a></h1>
+            <ul id="nav">
+               <li><a href="/">Home</a></li>
+               <li><a href="/archive.html">Post Archive</a></li>
+               <li><a href="http://github.com/benhirsch24">Github</a></li>
+               <li><a href="http://linkedin.com/in/benhirsch24">LinkedIn</a></li>
+               <li><a href="/about.html">About Me</a></li>
+            </ul>
+            <div class="built">
+               This site built using <a href="jaspervdj.be/hakyll">Hakyll</a>.
+            </div>
+         </div>
+         <div class="content pure-u-1">
+            <div class="posts">
+               <h2>About Me</h2>
+<p>Hi I’m Ben. I graduated Cal Poly San Luis Obispo with a degree in Computer Science and a minor in Mathematics (mostly differential equations because no one told me how cool Abstract Algebra and other fields could be) and my job this summer is doing research on speeding up a genetic selection algorithm using CUDA. Currently my main Computer Science interests include parallel and concurrent programming, type theory, compilers and transpilers, and functional programming, but I love problem solving in general which is why I was drawn to programming at a young age. Off the computer I enjoy watching Sci-Fi, lifting weights, reading books, noodling on my guitar, and playing basketball (obviously by the color scheme: Go Lakers!). Enjoy whatever it is I end up writing about.</p>
+<h2>Some of my Projects</h2>
+<h3><a href="http://github.com/benhirsch24/cinteractive">Interactive C Interpreter</a></h3>
+<p><a href="http://ec2-50-112-16-84.us-west-2.compute.amazonaws.com/">Working Link</a></p>
+<p>This is a project I’m working on with <a href="http://www.csc.calpoly.edu/~akeen">Aaron Keen</a>. The goal is to help 101 students understand how C executes more intuitively by providing an interactive interface to the program. Right now it feels like a less good debugger, but the interpreter is in a state to be easily extended and now I get to start thinking about different ways to provide information. Mostly written in Javascript with a small Haskell server which uses <a href="http://hackage.haskell.org/package/language-c">the Language-C module</a> to parse and serve a C AST as JSON. Stay tuned…</p>
+<h3><a href="http://github.com/benhirsch24/dairy">Parallel GenSel</a></h3>
+<p>This is my senior project, so it’s still in progress. The goal of the project is to investigate using CUDA to parallelize <a href="http://www.biomedcentral.com/content/supplementary/1471-2105-12-186-s1.pdf">GenSel</a> which is a Genetic Selection program written in C++. Our target for parallelization is the BayesC algorithm (specified in <a href="http://www.gsejournal.org/content/pdf/1297-9686-36-3-261.pdf">this paper</a>) as it’s the currently most used algorithm. My main work has been in the BayesKepler branch which attempts to parallelize over each genetic marker, whereas the DynPar branch takes advantage of CUDA 5.0’s Dynamic Parallelism (launching kernels from kernels) to parallelize over the matrix math. Hopefully one of these or another un-thought of approach pans out.</p>
+<h4><a href="https://github.com/benhirsch24/Core-Compiler">Core Compiler</a></h4>
+<p>This isn’t really something I should leave up, but I will anyway. It was my first serious foray into Haskell programming and I think it’s totally broken. But it was super interesting at the time because in school I had written a Scheme interpreter and a compiler for SPARC, but I had no clue how a language like Haskell would be compiled especially with functions being curried. Now I know, and knowing is half the battle. Plus the compiling process with its state stepping function inspired me for the C interpreter, so evidently it did help in how I think about programming language execution models. It was fun to build a basic graph reduction machine with a couple types of basic garbage collection. When I get time I may try to re-write this with a type system and use my experience with Haskell more; not to mention that even though I’ve read through most of the book and turned it over in my head I haven’t yet fully implemented the compiler from AST -&gt; G-machine -&gt; Three Instruction Machine (and all the optimizations at the end of the book).</p>
+            </div>
          </div>
       </div>
    </body>

@@ -1,99 +1,102 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
    <head>
-      <title>Ben's Blog - Home</title>
+      <link href="http://fonts.googleapis.com/css?family=Ubuntu" rel="stylesheet" type="text/css">
+      <title>Home - Ben's Blog</title>
+      <link rel="stylesheet" href="./css/pure-min.css">
+      <link rel="stylesheet" href="./css/style.css">
+      <link rel="stylesheet" href="http://yandex.st/highlightjs/7.3/styles/pojoaque.min.css">
+      <script src="http://yandex.st/highlightjs/7.3/highlight.min.js"></script>
       <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-      <link href="./css/bootstrap.css" rel="stylesheet" />
-      <link href="./css/bootstrap-responsive.css" rel="stylesheet" />
-      <link href="http://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet" type="text/css">
-      <style>
-         body {
-            font-family: 'PT Sans', sans-serif;
-            font-size: 18px;
-            background-color:#eee;
-         }
-
-         #aboutme {
-            color: #aaa;
-            font-size: 12px;
-            font-style: italic;
-         }
-
-         .container {
-            max-width: 760px;
-            background-color:#fff;
-            padding:.5em;
-            box-shadow: 2px 3px 15px #000;
-         }
-
-         .container h1 {
-            text-align: center;
-            padding-top:1em;
-         }
-
-         .mynav {
-            border-bottom: 1px solid #000;
-            padding:1em;
-            text-align: center;
-            font-size: 24px;
-         }
-         .mynav li {
-            display: inline;
-            padding:1em;
-         }
-
-         .footer {
-            padding: 2em;
-         }
-
-         .clear { clear: both; }
-
-         #article p {
-            font-size: 16px;
-            line-height: 150%;
-         }
-      </style>
    </head>
    <body>
-      <div class="container">
-         <h1>Ben's Blog</h1>
-         <br>
-         <ul class="mynav">
-            <li><a href="./">Home</a></li>
-            <li><a href="./archive.html">Archive</a></li>
-            <li><a href="http://github.com/benhirsch24">Github</a></li>
-            <li><a href="./projects.html">Projects</a></li>
-            <!--<li><a href="#">Resume?</a></li>-->
-            <br class="clear" />
-         </ul>
+      <div class="pure-g-r" id="layout">
+         <div class="sidebar pure-u">
+            <h1 id="name"><a href="./">Ben Hirsch</a></h1>
+            <ul id="nav">
+               <li><a href="./">Home</a></li>
+               <li><a href="./archive.html">Post Archive</a></li>
+               <li><a href="http://github.com/benhirsch24">Github</a></li>
+               <li><a href="http://linkedin.com/in/benhirsch24">LinkedIn</a></li>
+               <li><a href="./about.html">About Me</a></li>
+            </ul>
+            <div class="built">
+               This site built using <a href="jaspervdj.be/hakyll">Hakyll</a>.
+            </div>
+         </div>
+         <div class="content pure-u-1">
+            <div class="posts">
+               <ul>
+    <section class="post">
+   <header class="post-head">
+      <h2 class="post-title">C Interactive Interpreter Running</h2>
+      <p class="post-info">Posted on July  3, 2013</p>
+      <p class="post-preview">
+         
+            <p>It’s no fun just talking about something you did, especially a web application. Finally after playing around with Heroku buildpacks and EC2 I finally got my C Interactive Interpreter running on EC2! You can see it <a href="http://ec2-50-112-16-84.us-west-2.compute.amazonaws.com">here</a>. It doesn’t support C fully yet. Arrays, functions, and structs along with arithmetic are supported, but there’s no console yet (obviously) and there’s no pointers yet either. But it’s still cool.</p>
 
-         <ul>
-    <li>
-    <a href="./posts/2013-07-03-c-interactive-running.html">C Interactive Interpreter Running</a> - July  3, 2013
-</li>
-<li>
-    <a href="./posts/2013-06-26-go-in-elm.html">Go in Elm</a> - June 26, 2013
-</li>
-<li>
-    <a href="./posts/2013-06-19-fun-with-elm-531-calculator.html">Fun With Elm: A 5/3/1 Calculator</a> - June 19, 2013
-</li>
-<li>
-    <a href="./posts/2013-05-20-different-programming-styles-this-quarter.html">Different Programming Approaches</a> - May 20, 2013
-</li>
-<li>
-    <a href="./posts/2013-05-12-cuda-in-terms-of-list-operations.html">CUDA In Terms of List Operations</a> - May 12, 2013
-</li>
-<li>
-    <a href="./posts/2013-03-18-object-oriented-programming.html">Object Oriented Programming Can Be Useful</a> - March 18, 2013
-</li>
+         
+      </p>
+      <a class="jump" href="./posts/2013-07-03-c-interactive-running.html">Read More...</a>
+   </header>
+</section>
+<section class="post">
+   <header class="post-head">
+      <h2 class="post-title">Go in Elm</h2>
+      <p class="post-info">Posted on June 26, 2013</p>
+      <p class="post-preview">
+         
+            <p>I’m not going to talk about this too much, but last weekend I spent the morning (~3 hours) starting to make the ancient game Go in Elm. I started with the game framework on the Elm website.</p>
+
+         
+      </p>
+      <a class="jump" href="./posts/2013-06-26-go-in-elm.html">Read More...</a>
+   </header>
+</section>
+<section class="post">
+   <header class="post-head">
+      <h2 class="post-title">Fun With Elm: A 5/3/1 Calculator</h2>
+      <p class="post-info">Posted on June 19, 2013</p>
+      <p class="post-preview">
+         
+            <p>Around March my back FINALLY started feeling much better.</p>
+<p>I guess I should start out by saying that in December 2011 I hurt my back while squatting. It was only about two months after I had competed in a powerlifting meet where I squatted 409 lbs, benched 264 lbs, and deadlifted 501 lbs, and <em>of course</em> I was already going hard in the gym again. I found a great groove in doing the competition lifts four times a week, but I think my poor mobility from a much too abbreviated warm up and day after day working slouched in front of a computer at my internship finally paid off in the form of a sudden pain in my lower back at the bottom of a routine 315 lb squat. I was hurt.</p>
+
+         
+      </p>
+      <a class="jump" href="./posts/2013-06-19-fun-with-elm-531-calculator.html">Read More...</a>
+   </header>
+</section>
+<section class="post">
+   <header class="post-head">
+      <h2 class="post-title">Different Programming Approaches</h2>
+      <p class="post-info">Posted on May 20, 2013</p>
+      <p class="post-preview">
+         
+            <p>So I’m lying here trying to sleep, my mind cranked up after a beautiful sunny day spent tucked away in the computer lab, and I’m realizing just how much coding I’m doing during this 11 week period that is my last quarter at school. I have an internship at <a href="http://e-e.com">Experts Exchange</a>, <a href="http://github.com/benhirsch24/dairy/">my senior project</a> trying to parallelize a genetic selection algorithm using CUDA, and <a href="http://github.com/benhirsch24/cinteractive">an interactive C visualizer</a> which is meant to help students learning C c how it executes. That’s a lot of coding, and each project calls for a different style and level of rigour in coding. My mind spun on this for a while and I realized I could totally write this down, so I am. Hopefully I can get to sleep afterwards.</p>
+
+         
+      </p>
+      <a class="jump" href="./posts/2013-05-20-different-programming-styles-this-quarter.html">Read More...</a>
+   </header>
+</section>
+<section class="post">
+   <header class="post-head">
+      <h2 class="post-title">CUDA In Terms of List Operations</h2>
+      <p class="post-info">Posted on May 12, 2013</p>
+      <p class="post-preview">
+         
+            <p>I believe that one of the reasons I took to CUDA fairly quickly was that I’m a functional programming enthusiast. I took a Programming Languages course my junior year which was taught by <a href="http://www.brinckerhoff.org/clements/">John Clements</a> who contributed to <a href="http://racket-lang.org/">Racket</a>, a Scheme dialect. While the very first day of class looking at a LISPy language was a little odd (parentheses? prefix notation?), I got over it quickly and found that the programming paradigm <em>just fit</em> in my head. That summer I had an internship which consisted of writing and running tests that could take a while (30 minutes to an hour), so I started looking for stuff to learn about and I remembered how much I enjoyed Racket and LISP in general. I didn’t have a great grasp over monads (sorry Dr Clements, I might’ve fallen asleep in class that day) and googling that led me to Haskell, and I haven’t looked back in my love of compilers, static typing, and functional programming since.</p>
+
+         
+      </p>
+      <a class="jump" href="./posts/2013-05-12-cuda-in-terms-of-list-operations.html">Read More...</a>
+   </header>
+</section>
 
 </ul>
 
-         <div class="footer">
-            <p id="aboutme">
-            Hi I'm Ben. I graduated Cal Poly San Luis Obispo with a degree in Computer Science and a minor in Mathematics (mostly differential equations because no one told me how cool Abstract Algebra could be) and my job this summer is doing research on speeding up a genetic selection algorithm using CUDA. My main Computer Science interests include parallel and concurrent programming paradigms, type theory, compilers and transpilers, and functional programming. Outside of that I enjoy watching Sci-Fi, lifting weights, reading books, and playing basketball (go Lakers!). Enjoy whatever it is I write about.
-            </p>
-            Copyright <a href="http://benhirsch24.github.com">Ben Hirsch</a>
+            </div>
          </div>
       </div>
    </body>

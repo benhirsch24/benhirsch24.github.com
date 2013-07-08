@@ -1,80 +1,39 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
    <head>
-      <title>Ben's Blog - C Interactive Interpreter Running</title>
+      <link href="http://fonts.googleapis.com/css?family=Ubuntu" rel="stylesheet" type="text/css">
+      <title>C Interactive Interpreter Running - Ben's Blog</title>
+      <link rel="stylesheet" href="../css/pure-min.css">
+      <link rel="stylesheet" href="../css/style.css">
+      <link rel="stylesheet" href="http://yandex.st/highlightjs/7.3/styles/pojoaque.min.css">
+      <script src="http://yandex.st/highlightjs/7.3/highlight.min.js"></script>
       <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-      <link href="../css/bootstrap.css" rel="stylesheet" />
-      <link href="../css/bootstrap-responsive.css" rel="stylesheet" />
-      <link href="http://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet" type="text/css">
-      <style>
-         body {
-            font-family: 'PT Sans', sans-serif;
-            font-size: 18px;
-            background-color:#eee;
-         }
-
-         #aboutme {
-            color: #aaa;
-            font-size: 12px;
-            font-style: italic;
-         }
-
-         .container {
-            max-width: 760px;
-            background-color:#fff;
-            padding:.5em;
-            box-shadow: 2px 3px 15px #000;
-         }
-
-         .container h1 {
-            text-align: center;
-            padding-top:1em;
-         }
-
-         .mynav {
-            border-bottom: 1px solid #000;
-            padding:1em;
-            text-align: center;
-            font-size: 24px;
-         }
-         .mynav li {
-            display: inline;
-            padding:1em;
-         }
-
-         .footer {
-            padding: 2em;
-         }
-
-         .clear { clear: both; }
-
-         #article p {
-            font-size: 16px;
-            line-height: 150%;
-         }
-      </style>
    </head>
    <body>
-      <div class="container">
-         <h1>Ben's Blog</h1>
-         <br>
-         <ul class="mynav">
-            <li><a href="../">Home</a></li>
-            <li><a href="../archive.html">Archive</a></li>
-            <li><a href="http://github.com/benhirsch24">Github</a></li>
-            <li><a href="../projects.html">Projects</a></li>
-            <!--<li><a href="#">Resume?</a></li>-->
-            <br class="clear" />
-         </ul>
+      <div class="pure-g-r" id="layout">
+         <div class="sidebar pure-u">
+            <h1 id="name"><a href="../">Ben Hirsch</a></h1>
+            <ul id="nav">
+               <li><a href="../">Home</a></li>
+               <li><a href="../archive.html">Post Archive</a></li>
+               <li><a href="http://github.com/benhirsch24">Github</a></li>
+               <li><a href="http://linkedin.com/in/benhirsch24">LinkedIn</a></li>
+               <li><a href="../about.html">About Me</a></li>
+            </ul>
+            <div class="built">
+               This site built using <a href="jaspervdj.be/hakyll">Hakyll</a>.
+            </div>
+         </div>
+         <div class="content pure-u-1">
+            <div class="posts">
+               <section class="post">
+   <header class="post-head">
+      <h2 class="post-title">C Interactive Interpreter Running</h2>
+   </header>
+   <section class="post-body">
+      <p>It’s no fun just talking about something you did, especially a web application. Finally after playing around with Heroku buildpacks and EC2 I finally got my C Interactive Interpreter running on EC2! You can see it <a href="http://ec2-50-112-16-84.us-west-2.compute.amazonaws.com">here</a>. It doesn’t support C fully yet. Arrays, functions, and structs along with arithmetic are supported, but there’s no console yet (obviously) and there’s no pointers yet either. But it’s still cool.</p>
+<!--more-->
 
-         <div id="article">
-   <h2>C Interactive Interpreter Running</h2>
-
-   <div class="info">Posted on July  3, 2013</div>
-   <br>
-
-   <p>It’s no fun just talking about something you did, especially a web application. Finally after playing around with Heroku buildpacks and EC2 I finally got my C Interactive Interpreter running on EC2! You can see it <a href="http://ec2-50-112-16-84.us-west-2.compute.amazonaws.com">here</a>.</p>
-<p>It doesn’t support C fully yet. Arrays, functions, and structs along with arithmetic are supported, but there’s no console yet (obviously) and there’s no pointers yet either. But it’s still cool.</p>
 <p>The basic flow is that, after entering a C program in the text box (which uses <a href="http://codemirror.net">CodeMirror</a>), you hit Compile! in the nav bar which compiles the program using <a href="http://hackage.haskell.org/package/language-c">Language-C</a>. That compilation creates a C AST, then I wrote a toJSON instance using <a href="http://hackage.haskell.org/package/aeson">Aeson</a> which gets sent back. Then if you click the button right next to it, “Data Received, Click to Collect Steps” it’ll run through the program and collect all the intermediate states. The Play button underneath the code box will automatically “play” through the program stepping a line every second. You can pause, and re-start using play. You can use the fast-forward/rewind buttons to move back and forward lines; stop fully stops the program and when you hit Play it should start back at the beginning.</p>
 <p>So right now the Javascript interpreter is essentially an AST tree-traversal which collects the intermediate states of the memory as it visits each statement. It works, but it’s pretty un-elegant in my opinion. My goal was to get a proof-of-concept working in one quarter while also working on my senior project and of course my Networks class which only had two real projects, but those projects were week-long affairs that consumed time. And my internship too. But I told my professor that I’d like to work on it a bit over summer, so hopefully I can find some time to improve it and add some features.</p>
 <p>What I’d like to add:</p>
@@ -88,13 +47,10 @@
 <li>CUDA support! I think that’d be cool, and people seem to have trouble grasping the SIMD model, I think a visual “this is your data, see it go through the program thread-by-thread” and focus on a specific thread at a time to peek into what’s going on. Language-C doesn’t have support for it, but <a href="http://hackage.haskell.org/package/language-c-quote">Language-C-Quote</a> does. It would be an entirely different backend than Language-C, so I’d rather wait on this until I get a better Haskell transform -&gt; Javascript VM flow going so it’d be a seamless-ish transition.</li>
 </ul>
 <p>So if you stumble on this blog, go play with it and report issues on the github.</p>
-</div>
+   </section>
+</section>
 
-         <div class="footer">
-            <p id="aboutme">
-            Hi I'm Ben. I graduated Cal Poly San Luis Obispo with a degree in Computer Science and a minor in Mathematics (mostly differential equations because no one told me how cool Abstract Algebra could be) and my job this summer is doing research on speeding up a genetic selection algorithm using CUDA. My main Computer Science interests include parallel and concurrent programming paradigms, type theory, compilers and transpilers, and functional programming. Outside of that I enjoy watching Sci-Fi, lifting weights, reading books, and playing basketball (go Lakers!). Enjoy whatever it is I write about.
-            </p>
-            Copyright <a href="http://benhirsch24.github.com">Ben Hirsch</a>
+            </div>
          </div>
       </div>
    </body>

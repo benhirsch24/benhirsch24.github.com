@@ -1,79 +1,39 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
    <head>
-      <title>Ben's Blog - Different Programming Approaches</title>
+      <link href="http://fonts.googleapis.com/css?family=Ubuntu" rel="stylesheet" type="text/css">
+      <title>Different Programming Approaches - Ben's Blog</title>
+      <link rel="stylesheet" href="../css/pure-min.css">
+      <link rel="stylesheet" href="../css/style.css">
+      <link rel="stylesheet" href="http://yandex.st/highlightjs/7.3/styles/pojoaque.min.css">
+      <script src="http://yandex.st/highlightjs/7.3/highlight.min.js"></script>
       <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-      <link href="../css/bootstrap.css" rel="stylesheet" />
-      <link href="../css/bootstrap-responsive.css" rel="stylesheet" />
-      <link href="http://fonts.googleapis.com/css?family=PT+Sans" rel="stylesheet" type="text/css">
-      <style>
-         body {
-            font-family: 'PT Sans', sans-serif;
-            font-size: 18px;
-            background-color:#eee;
-         }
-
-         #aboutme {
-            color: #aaa;
-            font-size: 12px;
-            font-style: italic;
-         }
-
-         .container {
-            max-width: 760px;
-            background-color:#fff;
-            padding:.5em;
-            box-shadow: 2px 3px 15px #000;
-         }
-
-         .container h1 {
-            text-align: center;
-            padding-top:1em;
-         }
-
-         .mynav {
-            border-bottom: 1px solid #000;
-            padding:1em;
-            text-align: center;
-            font-size: 24px;
-         }
-         .mynav li {
-            display: inline;
-            padding:1em;
-         }
-
-         .footer {
-            padding: 2em;
-         }
-
-         .clear { clear: both; }
-
-         #article p {
-            font-size: 16px;
-            line-height: 150%;
-         }
-      </style>
    </head>
    <body>
-      <div class="container">
-         <h1>Ben's Blog</h1>
-         <br>
-         <ul class="mynav">
-            <li><a href="../">Home</a></li>
-            <li><a href="../archive.html">Archive</a></li>
-            <li><a href="http://github.com/benhirsch24">Github</a></li>
-            <li><a href="../projects.html">Projects</a></li>
-            <!--<li><a href="#">Resume?</a></li>-->
-            <br class="clear" />
-         </ul>
+      <div class="pure-g-r" id="layout">
+         <div class="sidebar pure-u">
+            <h1 id="name"><a href="../">Ben Hirsch</a></h1>
+            <ul id="nav">
+               <li><a href="../">Home</a></li>
+               <li><a href="../archive.html">Post Archive</a></li>
+               <li><a href="http://github.com/benhirsch24">Github</a></li>
+               <li><a href="http://linkedin.com/in/benhirsch24">LinkedIn</a></li>
+               <li><a href="../about.html">About Me</a></li>
+            </ul>
+            <div class="built">
+               This site built using <a href="jaspervdj.be/hakyll">Hakyll</a>.
+            </div>
+         </div>
+         <div class="content pure-u-1">
+            <div class="posts">
+               <section class="post">
+   <header class="post-head">
+      <h2 class="post-title">Different Programming Approaches</h2>
+   </header>
+   <section class="post-body">
+      <p>So I’m lying here trying to sleep, my mind cranked up after a beautiful sunny day spent tucked away in the computer lab, and I’m realizing just how much coding I’m doing during this 11 week period that is my last quarter at school. I have an internship at <a href="http://e-e.com">Experts Exchange</a>, <a href="http://github.com/benhirsch24/dairy/">my senior project</a> trying to parallelize a genetic selection algorithm using CUDA, and <a href="http://github.com/benhirsch24/cinteractive">an interactive C visualizer</a> which is meant to help students learning C c how it executes. That’s a lot of coding, and each project calls for a different style and level of rigour in coding. My mind spun on this for a while and I realized I could totally write this down, so I am. Hopefully I can get to sleep afterwards.</p>
+<!--more-->
 
-         <div id="article">
-   <h2>Different Programming Approaches</h2>
-
-   <div class="info">Posted on May 20, 2013</div>
-   <br>
-
-   <p>So I’m lying here trying to sleep, my mind cranked up after a beautiful sunny day spent tucked away in the computer lab, and I’m realizing just how much coding I’m doing during this 11 week period that is my last quarter at school. I have an internship at <a href="http://e-e.com">Experts Exchange</a>, <a href="http://github.com/benhirsch24/dairy/">my senior project</a> trying to parallelize a genetic selection algorithm using CUDA, and <a href="http://github.com/benhirsch24/cinteractive">an interactive C visualizer</a> which is meant to help students learning C c how it executes. That’s a lot of coding, and each project calls for a different style and level of rigour in coding. My mind spun on this for a while and I realized I could totally write this down, so I am. Hopefully I can get to sleep afterwards.</p>
 <h3 id="work-coding">Work Coding</h3>
 <p>The web company I intern at uses Java. Originally I was grumbly because <em>grumble grumble</em> no higher order functions, lambdas, blah blah <em>grumble grumble</em> but I know deep down it’s the right choice for the job. For one, Java and their dependencies are obviously well supported and fairly to quite reliable. There’s documentation and the talent pool of developers is deep as Cal Poly is right there teaching its students Java primarily (with a bit of C and ML mixed in). Primarily.</p>
 <p>Beyond the political/organizational there’s also just the pure code side. Java is a strongly, statically type language and obviously a huge part of the build and push process is compiling the code and making sure there are no errors. To go out there have to be no type errors and <a href="http://en.wikipedia.org/wiki/Curry-Howard_correspondence#Origin.2C_scope.2C_and_consequences">which is proof a certain class of errors can’t occur</a>. Not all of course, there’s still the frustration of the dreaded NPE (Null Pointer Exception). Reflection can also subvert this too. But still, asking a computer program to verify your program can’t commit certain errors seems… smart. Logical. Why not do it? Honestly, if your product is software and you don’t want it to have bugs it seems like a statically typed language should be obvious.</p>
@@ -97,13 +57,10 @@
 <p>Even though I read constantly about programming languages and how they work, different evaluation models and such I hadn’t actually built one completely on my own yet. It was always as part of a class or in case of my Core compiler following a tutorial/textbook with exercises. This was totally from scratch and I’m not afraid to say I was a bit intimidated at first. Eventually after reading around a bit on interpreters and just thinking about it I decided that I would follow the basic model of the Core compiler of a stepping function (and also <a href="http://matt.might.net/articles/cesk-machines/">a couple posts on CESK interpreters</a>) I had a rough sketch of what to do and it was time to do it. It all boils down to just a problem to solve anyways. How do you make this programming language AST do stuff? Solve it, go.</p>
 <p>However now that I have it at a stable place with loops, if/else statements, variables, function calls, and arrays working, I basically just got done separating it into modules using require.js, something I just learned because I knew it was a module system and I knew that my application had hit the critical point where it was necessary to break it up if I wanted to keep being productive. Now, would it have been better to structure it right away? I don’t really think so. Patterns and separation of logic occurred fairly organically as it built up; I didn’t throw everything together anyways, I broke things up as necessary and sometimes two things you thought were completely separate end up being completely dependent on each other while this third thing is essential in both those two anyways, might as well throw them all together… Patterns emerge as the system builds up. It’s so satisfying when the application gets to the point of the other two because you know this design was the one that made it.</p>
 <p>That’s why even though the other two styles of programming and problem navigating are fun, this was my absolute favorite;</p>
-</div>
+   </section>
+</section>
 
-         <div class="footer">
-            <p id="aboutme">
-            Hi I'm Ben. I graduated Cal Poly San Luis Obispo with a degree in Computer Science and a minor in Mathematics (mostly differential equations because no one told me how cool Abstract Algebra could be) and my job this summer is doing research on speeding up a genetic selection algorithm using CUDA. My main Computer Science interests include parallel and concurrent programming paradigms, type theory, compilers and transpilers, and functional programming. Outside of that I enjoy watching Sci-Fi, lifting weights, reading books, and playing basketball (go Lakers!). Enjoy whatever it is I write about.
-            </p>
-            Copyright <a href="http://benhirsch24.github.com">Ben Hirsch</a>
+            </div>
          </div>
       </div>
    </body>
