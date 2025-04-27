@@ -1,47 +1,41 @@
 <!DOCTYPE html>
 <html lang="en">
-   <head>
-      <link href='http://fonts.googleapis.com/css?family=Ubuntu' rel='stylesheet' type='text/css'>
-      <title>about - Ben's Blog</title>
-      <link rel="stylesheet" href="./css/pure-min.css">
-      <link rel="stylesheet" href="./css/style.css">
-      <link rel="stylesheet" href="http://yandex.st/highlightjs/7.3/styles/pojoaque.min.css">
-      <script src="http://yandex.st/highlightjs/7.3/highlight.min.js"></script>
-      <meta http-equiv="Content-Type" content="text/html;charset=UTF-8">
-   </head>
-   <body>
-      <div class="pure-g-r" id="layout">
-         <div class="sidebar pure-u">
-            <h1 id="name"><a href="/">Ben Hirsch</a></h1>
-            <ul id="nav">
-               <li><a href="/">Home</a></li>
-               <li><a href="/archive.html">Post Archive</a></li>
-               <li><a href="http://github.com/benhirsch24">Github</a></li>
-               <li><a href="http://linkedin.com/in/benhirsch24">LinkedIn</a></li>
-               <li><a href="/about.html">About Me</a></li>
-            </ul>
-            <div class="built">
-               This site built using <a href="jaspervdj.be/hakyll">Hakyll</a>.
-            </div>
-         </div>
-         <div class="content pure-u-1">
-            <div class="posts">
-               <h2>About Me</h2>
-               <h3>Hi I’m Ben.</h3>
-               <p>I currently work at Amazon Lab126 as a Software Engineer. Here, I've done everything from writing ISP drivers for SoCs, participating in selecting SoCs for our prodcuts, dealt with demuxing and decoding media streams, all the way up to writing Android applications. My current interests at Lab lie in machine learning, performance optimization, and visualizing data.</p>
-               <p>Previously, I worked at <a href="http://www.centrcam.com">CENTR Cameras</a>, a 6 person startup where we worked on creating a panoramic video camera which could record and stitch video from 4 720p cameras at 60fps or at 1080p/30fps. I was the Software Engineer responsible for understanding the architecture of the SoC we worked with and I optimized the computer vision and image processing algorithms for the SoC's VPU, an array of VLIW vector processors. I also contributed to the website with PHP, HTML, Javascript, CSS, and even Go as necessary.</p>
-               <p>I graduated Cal Poly San Luis Obispo with a degree in Computer Science and a minor in Mathematics (mostly differential equations because no one told me how interesting Abstract Algebra and other fields could be). I contributed to a couple bioinformatics research projects at Cal Poly using CUDA. One was a genetic selection program to optimize breeding cattle for certain phenotypes such as milk or meat produced, and the other was a genetic analysis program to compare the genomes of different strains of E Coli bacteria for a database.</p>
-               <p>My main Computer Science interests include parallel and concurrent programming, type theory, compilers and transpilers, and functional programming, but I love problem solving in general which is why I was drawn to programming at a young age. Off the computer I enjoy lifting weights, brewing beer, watching Sci-Fi, noodling on my guitar, and playing basketball. Obviously by the color scheme of my site I’m a huge Laker fan.</p>
-               <p>Enjoy whatever it is I end up writing about.</p>
-<h2>Some of my Projects</h2>
-<h3><a href="http://github.com/benhirsch24/cinteractive">Interactive C Interpreter</a></h3>
-<p>This is a project I’m working on with <a href="http://www.csc.calpoly.edu/~akeen">Aaron Keen</a>. The goal is to help 101 students understand how C executes more intuitively by providing an interactive interface to the program. Right now it feels like a less good debugger, but the interpreter is in a state to be easily extended and now I get to start thinking about different ways to provide information. Mostly written in Javascript with a small Haskell server which uses <a href="http://hackage.haskell.org/package/language-c">the Language-C module</a> to parse and serve a C AST as JSON. It's not currently running, but maybe in the future...</p>
-<h3>Parallel GenSel</h3>
-<p>This was my senior project and summer research job after I had graduated. The goal of the project is to investigate using CUDA to parallelize <a href="http://www.biomedcentral.com/content/supplementary/1471-2105-12-186-s1.pdf">GenSel</a> which is a Genetic Selection program written in C++. Our target for parallelization is the BayesC algorithm (specified in <a href="http://www.gsejournal.org/content/pdf/1297-9686-36-3-261.pdf">this paper</a>) as it’s the currently most used algorithm. I worked to understand the algorithm and parallelize it if possible. Unfortunately, the algorithm was basically a Markov Chain formed with repeated Gibbs Sampling methods. In layman's terms: each iteration of the algorithm depended on the previous which is not parallelizable. My later work focused on optimizing the linear algebra sections of the code to determine where CUDA would beat out the C++ library <a href="http://eigen.tuxfamily.org">Eigen.</a></p>
-<h4><a href="https://github.com/benhirsch24/Core-Compiler">Core Compiler</a></h4>
-<p>This isn’t really something I should leave up, but I will anyway. It was my first serious foray into Haskell programming and I think it’s totally broken. But it was super interesting at the time because in school I had written a Scheme interpreter and a compiler for SPARC, but I had no clue how a language like Haskell would be compiled especially with functions being curried. Now I know, and knowing is half the battle. Plus the compiling process with its state stepping function inspired me for the C interpreter, so evidently it did help in how I think about programming language execution models. It was fun to build a basic graph reduction machine with a couple types of basic garbage collection. When I get time I may try to re-write this with a type system and use my experience with Haskell more; not to mention that even though I’ve read through most of the book and turned it over in my head I haven’t yet fully implemented the compiler from AST -&gt; G-machine -&gt; Three Instruction Machine (and all the optimizations at the end of the book).</p>
-            </div>
-         </div>
-      </div>
-   </body>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>About Me - Ben Hirsch</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="./css/main.css">
+</head>
+<body>
+    <header>
+        <h1><a href="./">Ben Hirsch</a></h1>
+        <nav>
+            <a href="./">Home</a>
+            <a href="./archive.html">Archive</a>
+            <a href="https://github.com/benhirsch24">GitHub</a>
+            <a href="https://linkedin.com/in/benhirsch24">LinkedIn</a>
+            <a href="./about.html">About</a>
+        </nav>
+    </header>
+
+    <main>
+        
+    <article class="about">
+        <div class="about-content">
+            <h1>About Me</h1>
+<p>Hi, I'm Ben.</p>
+<p>Currently I'm a Principal Engineer at Amazon IVS and Twitch where I've worked since 2019. I focus on Amazon IVS's Low Latency HLS product where I've done everything from ship features like <a href="https://docs.aws.amazon.com/ivs/latest/LowLatencyUserGuide/metadata.html">Timed Metadata</a> or <a href="https://aws.amazon.com/about-aws/whats-new/2024/04/amazon-ivs-low-latency-streaming-srt-ingest/">SRT</a> to behind-the-scenes infrastructural changes like capturing our origin datacenters' transcode capacities and exposing that to our global ingest dataplane to make sure broadcasters will always have transcoding capacity. Lately I've been getting more into how we manage our CDN and how to work with the AWS network to ensure our high-throughput video services continue to deliver great video quality to our customers. Basically networks fun video good.</p>
+<p>In the past I've worked on <a href="https://www.amazon.com/Amazon-Cloud-Indoor-Security-Camera/dp/B01MTOMIB4">Amazon Cloud Cam</a> (RIP) where I worked on our WebRTC SFU and computer vision pipeline. Before that I worked at <a href="https://techcrunch.com/2014/05/28/centr-cam-is-a-gopro-competitor-that-captures-everything-around-you/">CENTR Cam</a> (Also RIP) doing things like optimizing image processing kernels to dewarp fisheye cameras and blend them for <a href="https://www.intel.com/content/www/us/en/developer/topic-technology/edge-5g/hardware/vision-accelerator-movidius-vpu.html">Movidius'</a> (RIP-ish?) "vector processing units" and generally trying to get things done for my first job out of college.</p>
+<p>In college I was interested in GPU programming and programming language design. Still am.</p>
+<p>I'd describe myself as a software engineer who knows how to get things done and has ended up working on some very high-scale video systems, so I have a good knowledge base in video processing, distributed systems, and (slowly growing) datacenter networks. One of my favorite compliments from a manager was "I don't have to worry when I put you on a project because I know you'll move it forward somehow."</p>
+        </div>
+    </article>
+    
+    </main>
+
+    <footer>
+        <p>© Ben Hirsch. Built with ♥️  by Claude Code.</p>
+    </footer>
+</body>
 </html>
