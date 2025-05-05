@@ -35,6 +35,14 @@ Cline has its Plan mode and I don't have a good intuition yet for how focused th
 
 Great for writing SQL. I pay for ChatGPT Plus and use it for some personal projects. Amazon has a few internal website experiences that I use all the time for writing SQL. It's very refreshing to say "I have this table with columns a, b and I want to join it with another table with columns b, c and I want to see this histogram from that. SQL thanks."
 
+I don't have much else to really say about this other than my wife and I brainstormed ideas for a tartar sauce themed restaurant while we were in Hawaii and it was fun.
+
+![](images/tartar-me-up.webp)
+
+I'm just saying, fish and chips shops need to have unlimited tartar sauce available to me. Sure, there's obvious dangers to this.
+
+![](images/tartar-me-up-more.webp)
+
 ## Vibe Coding?
 
 With Q/Claude I find I'm way more likely to go into vibe coding mode. Something about the CLI interface lends itself to that. With Cline I felt the integation made it a lot easier for me to review each change it wanted to make which IS positive, but also made the change take much much longer. There's probably a middle ground there depending on the change.
