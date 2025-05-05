@@ -119,6 +119,12 @@ def convert_markdown_to_html(md_file_path, layout_template):
         date_str = extract_date(metadata, file_basename)
         formatted_date = format_date(date_str)
         
+        # Check if the content starts with a title that matches the extracted title
+        # If so, remove the first title heading to avoid duplication
+        lines = clean_content.split('\n')
+        if lines and lines[0].startswith('# ') and lines[0][2:].strip() == title:
+            clean_content = '\n'.join(lines[1:])
+        
         # Convert markdown to HTML
         html_content = markdown.markdown(
             clean_content,

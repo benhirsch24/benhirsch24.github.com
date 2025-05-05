@@ -107,6 +107,12 @@ def convert_md_to_html(md_path, layout_template):
     # Extract first paragraph for preview
     preview = extract_first_paragraph(md_content)
 
+    # Check if the content starts with a title that matches the extracted title
+    # If so, remove the first title heading to avoid duplication
+    lines = md_content.split('\n')
+    if lines and lines[0].startswith('# ') and lines[0][2:].strip() == title:
+        md_content = '\n'.join(lines[1:])
+
     # Convert markdown to HTML
     html_content = markdown.markdown(
         md_content,
