@@ -10,8 +10,6 @@ Then I went to smoke a tri-tip in my [Kamado Joe Classic 3](https://www.kamadojo
 
 Apparently it has **8** sensors and can predict the **true core temperature** of your meat. That's all well and cool, but after browsing the page I noticed that they have documentation for developers and an open spec for their Bluetooth implementation. That's when I came up with my idea: I bought a [Raspberry Pi 4](https://www.adafruit.com/product/4296) because the 5 was out of stock, a [tiny screen](https://www.adafruit.com/product/4484), and a [USB microphone](https://www.adafruit.com/product/3367) and patiently waited for them all to arrive. I'd make... a thing. A display of sorts, maybe more.
 
-![tiny screen](https://lh3.googleusercontent.com/pw/ABLVV847XVRWy6SMUyWMgGNJjDrIQMJCB8FjhEDZ5CvDCoq7c9SpvbAgH36ugQWzDRGHJESqrH_vqHudOpNQkfMvGWfni8M7Dne473HfS6ZJuzZuWx0RVyxe4w_6pyzxTZ1YJnq9actGr-qXI7N5yQCU8gk3TZhEDlPEXPP8v4n_12Ti2qwwyLDtR9El818xbQhEBKuSkVvlfhjuS0jooCcmHio7mS-mI0oqGL5n0YYh76Dw3IFxQ2MNH3CYVb3X_WXosCPNQ4rjOlKJj5cM4LANk7mZWYu3mSp0rGCcxnVEMl4trcRA17Z8Lv5XgE1divlAIMpc5wDI_WbjJWCJa-G45wj2rv3Utxw7g2aqa8EKL7mGuS8Dl133H2A465O6yWH_pW2wRE-TlsYM6OuJmxpxrmhW-SQETVvDkaLuKYLF3DjFPlHQ8L-XDBPgUBx8_GOea3JQSCQZ5dVcVyL6L63jbI7wALUrHL2I_RJORM2wv4qTcCoG6rcQq7RJxcI8GQzC7tKwEpseNWkerz69WgUSXfXQhp9Lc23oa2njxHDuO9i1k8W0uZor_63Q3l5IUzZ4D9ykPC-El4L78Lb_bslCrN-NTOdumWqV1ycD0dggi241jCoDBbCSjKl6MJktZidOgSBEqiag1isIJ5OZxEAkTMyZtmYuo1qgpuc4cUCUGgz20gYDJZ7ufx3hZP3plWrJtFVmFrSIy7KC0vZpf3g__qw8qyHN3FGZj6IQ6dja5JNCkYz3yVWLX5tfB_qobWxq7ujBTJKuw_kt0ZnoBnJjwbHdAwpLF7-5k2MQZTlfDKOPWYshTScHimFFU_WSOTYTbKigIzZaP3AZG_D26NXl6kIg3laq7gr9oWKuGVwbsD70SmpcsTRDCyQN0P06oUJ_YTc74D_Yn0VcTAGrwkjj25aUGVMoeXY8I1Cl84yaDPwy=w1384-h1846-s-no-gm?authuser=1)
-
 # Rust-bustion
 
 That's what started [Rustbustion](https://github.com/benhirsch24/rustbustion), a stupid program to talk from a Raspberry Pi to a bluetooth thermometer. I decided to use Rust because I like the language. I've followed it for a few years and even got to ship a production feature (well it's planning to GA in Q1 2024) using it and CGo and it's an enjoyable systems language. I might not build an entire company on Rust, but it's fun to use.
@@ -40,7 +38,7 @@ At this point it still didn't show up. After fidgeting with it by docking and re
 
 ## Milestone 2: how hot is it?
 
-Having achieved the monumental task of discovering and connecting to the thermometer it was time to read some data from it. My bluetooth knowledge journey commenced. 
+Having achieved the monumental task of discovering and connecting to the thermometer it was time to read some data from it. My bluetooth knowledge journey commenced.
 
 A Bluetooth device can expose one or more Services each with their own unique UUID the manufacturer tells you about. Each service can have one or more Characteristics again with their own UUIDs.
 
@@ -118,7 +116,7 @@ struct RawTempData {
 }
 ```
 
-And then 
+And then
 
 ```
                         let vs: [u8; 13] = value[8..21].try_into().expect("13");

@@ -29,7 +29,6 @@
 <p>This project came about because Twitch generously gives us two weeks off between Christmas and New Years. It's an amazing perk where I get to stop actively thinking about work for a bit (of course I'm checking Slack here and there to make sure nothing blew up and turning over some ideas for 2024 in the back of my head), but that doesn't stop me from wanting to do... <em>something</em>. I wasn't quite sure what though, but I knew I wanted to program something for fun; something that had nothing to do with developing my career or developing skills for future monetary gain, just fun like how I got into programming. "<em>I want to make something stupid</em>" as I told my girlfriend.</p>
 <p>Then I went to smoke a tri-tip in my <a href="https://www.kamadojoe.com/products/classic-joe-iii">Kamado Joe Classic 3</a> and realized that my meat thermometer couldn't hold a charge no matter how long it was plugged in. I probably could have spent more time figuring this out, but I knew that there was this thermometer from this place <a href="https://combustion.inc/">Combustion Inc</a> and J. Kenji Lopez-Alt recommended it.</p>
 <p>Apparently it has <strong>8</strong> sensors and can predict the <strong>true core temperature</strong> of your meat. That's all well and cool, but after browsing the page I noticed that they have documentation for developers and an open spec for their Bluetooth implementation. That's when I came up with my idea: I bought a <a href="https://www.adafruit.com/product/4296">Raspberry Pi 4</a> because the 5 was out of stock, a <a href="https://www.adafruit.com/product/4484">tiny screen</a>, and a <a href="https://www.adafruit.com/product/3367">USB microphone</a> and patiently waited for them all to arrive. I'd make... a thing. A display of sorts, maybe more.</p>
-<p><img alt="tiny screen" src="https://lh3.googleusercontent.com/pw/ABLVV847XVRWy6SMUyWMgGNJjDrIQMJCB8FjhEDZ5CvDCoq7c9SpvbAgH36ugQWzDRGHJESqrH_vqHudOpNQkfMvGWfni8M7Dne473HfS6ZJuzZuWx0RVyxe4w_6pyzxTZ1YJnq9actGr-qXI7N5yQCU8gk3TZhEDlPEXPP8v4n_12Ti2qwwyLDtR9El818xbQhEBKuSkVvlfhjuS0jooCcmHio7mS-mI0oqGL5n0YYh76Dw3IFxQ2MNH3CYVb3X_WXosCPNQ4rjOlKJj5cM4LANk7mZWYu3mSp0rGCcxnVEMl4trcRA17Z8Lv5XgE1divlAIMpc5wDI_WbjJWCJa-G45wj2rv3Utxw7g2aqa8EKL7mGuS8Dl133H2A465O6yWH_pW2wRE-TlsYM6OuJmxpxrmhW-SQETVvDkaLuKYLF3DjFPlHQ8L-XDBPgUBx8_GOea3JQSCQZ5dVcVyL6L63jbI7wALUrHL2I_RJORM2wv4qTcCoG6rcQq7RJxcI8GQzC7tKwEpseNWkerz69WgUSXfXQhp9Lc23oa2njxHDuO9i1k8W0uZor_63Q3l5IUzZ4D9ykPC-El4L78Lb_bslCrN-NTOdumWqV1ycD0dggi241jCoDBbCSjKl6MJktZidOgSBEqiag1isIJ5OZxEAkTMyZtmYuo1qgpuc4cUCUGgz20gYDJZ7ufx3hZP3plWrJtFVmFrSIy7KC0vZpf3g__qw8qyHN3FGZj6IQ6dja5JNCkYz3yVWLX5tfB_qobWxq7ujBTJKuw_kt0ZnoBnJjwbHdAwpLF7-5k2MQZTlfDKOPWYshTScHimFFU_WSOTYTbKigIzZaP3AZG_D26NXl6kIg3laq7gr9oWKuGVwbsD70SmpcsTRDCyQN0P06oUJ_YTc74D_Yn0VcTAGrwkjj25aUGVMoeXY8I1Cl84yaDPwy=w1384-h1846-s-no-gm?authuser=1" /></p>
 <h1>Rust-bustion</h1>
 <p>That's what started <a href="https://github.com/benhirsch24/rustbustion">Rustbustion</a>, a stupid program to talk from a Raspberry Pi to a bluetooth thermometer. I decided to use Rust because I like the language. I've followed it for a few years and even got to ship a production feature (well it's planning to GA in Q1 2024) using it and CGo and it's an enjoyable systems language. I might not build an entire company on Rust, but it's fun to use.</p>
 <h2>Basic Connection</h2>
@@ -47,7 +46,7 @@
 </ol>
 <p>At this point it still didn't show up. After fidgeting with it by docking and removing it repeatedly it did show back up. I'm unsure if these steps were necessary but learning a bit about <code>bluetoothctl</code> would prove to be useful down the line.</p>
 <h2>Milestone 2: how hot is it?</h2>
-<p>Having achieved the monumental task of discovering and connecting to the thermometer it was time to read some data from it. My bluetooth knowledge journey commenced. </p>
+<p>Having achieved the monumental task of discovering and connecting to the thermometer it was time to read some data from it. My bluetooth knowledge journey commenced.</p>
 <p>A Bluetooth device can expose one or more Services each with their own unique UUID the manufacturer tells you about. Each service can have one or more Characteristics again with their own UUIDs.</p>
 <p>To read the probe temperature (this is the probe at the very tip of the thermometer) I would <a href="https://github.com/benhirsch24/rustbustion/blob/main/src/main.rs#L108">find the Service</a> with UUID <code>00000100-CAAB-3792-3D44-97AE51C1407A</code></p>
 <pre><code>    let mut probe_service: Option&lt;Service&gt; = None;
@@ -102,7 +101,7 @@
     ...
 }
 </code></pre>
-<p>And then </p>
+<p>And then</p>
 <pre><code>                        let vs: [u8; 13] = value[8..21].try_into().expect(&quot;13&quot;);
                         let unpacked = RawTempData::from_bytes(vs);
                         let t1c = (unpacked.t1() * 5 - 2000) as f32 / 100.0;

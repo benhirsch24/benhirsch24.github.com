@@ -32,12 +32,12 @@
 <p>I wanted to start with a very basic flow:</p>
 <ol>
 <li>Start cooking good foods and set up the thermometer target temperature with my phone app.</li>
-<li>Plug in Raspberry Pi at the back of my house overlooking the yard. </li>
+<li>Plug in Raspberry Pi at the back of my house overlooking the yard.</li>
 <li>View temperature on my phone from anywhere I have internet.</li>
 </ol>
 <h2>Architecture</h2>
 <p>This led to a pretty simple architecture just to start:</p>
-<p><img alt="" src="https://cdn.some.pics/bep/65a0c6eb022b7.png" /></p>
+<p><img alt="" src="images/2024-01-12-04_43_remote-relay-arch.png" /></p>
 <ul>
 <li>The Raspberry Pi connects to the Combustion</li>
 <li>It pulls the latest data every N seconds and uploads every X seconds (N and X to be fiddled with constantly)</li>
@@ -59,7 +59,7 @@ mod mymod {
 }
 </code></pre>
 <p>And <code>mymod</code> will only compile/be available on OSes other than Linux.</p>
-<p>I went through a few phases of refactoring, but it generally broke into two phases: </p>
+<p>I went through a few phases of refactoring, but it generally broke into two phases:</p>
 <p><a href="https://github.com/benhirsch24/rustbustion/pull/1/commits/5fcc20fdf4547177b4a06df0012206d30fccb9ac#diff-4049bc1eb457fdc2e4e7df8bc99c282598b41003236278b8564d0a1bda199ecb">Github commit</a>. The first was to just <em>get it working</em> by writing two modules named the same thing but with conditional compilation only for <code>linux</code> and <code>macos</code>. I just had two modules named <code>combustion</code> in the same file with the conditional compilation flags above each. (Side note: it occurs to me the MacOS module should just be "not linux". Willfix).</p>
 <p>I wrapped my previous code interfacing with the Bluetooth library behind two structs:</p>
 <pre><code>    pub struct CombustionFinder {
@@ -139,7 +139,7 @@ CMD [&quot;echo&quot;, &quot;hello world&quot;]
 <p>Like I said I wanted this to be dead simple and created with technologies I understand. I'm not trying to learn a whole bunch of things (although that might come naturally), I just want to get the damn thing working.</p>
 <p>So with that said I reached for my personal preferred infrastructure as code library: Amazon CDK. Reader, I cannot tell you how much this has improved cloud software development life at Amazon. Pre-CDK managing our infrastructure was with CloudFormation and our deployment infrastructure was with Ruby scripts (ew). Now it's all Typescript which has documentation, and types, and documentation! and types!</p>
 <h3>CDK Aside</h3>
-<p>I like CloudFormation a lot, more than terraform. I like the idea of deploying a Stack in AWS that presumably has an understanding of the state of my infrastructure so that I can apply a change and have it figure out both how to mutate the infrastructure to get to that state AND MOST IMPORTANTLY if something fails how to mutate the infrastructure back (mostly) safely. </p>
+<p>I like CloudFormation a lot, more than terraform. I like the idea of deploying a Stack in AWS that presumably has an understanding of the state of my infrastructure so that I can apply a change and have it figure out both how to mutate the infrastructure to get to that state AND MOST IMPORTANTLY if something fails how to mutate the infrastructure back (mostly) safely.</p>
 <p>Terraform is great but it feels like a big foot-gun where it can fail and I don't know the state of things. I've also had less-than-stellar experiences working on a single Terraform codebase with multiple other developers. I'm sure organizations can do it successfully, I haven't experienced that.</p>
 <h3>Ok we're back</h3>
 <p>The thing is that even though I like CDK as a concept, I don't want to write a whole lot of it in my free time. Instead I turned to my good friend ChatGPT. I sent just a few terse chats to it:</p>
