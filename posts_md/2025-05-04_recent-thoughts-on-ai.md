@@ -6,6 +6,18 @@ Date: 2025-05-04
 
 Wanted to jot down some of my recent thoughts on "AI" and specifically the developer tools I've played around with lately.
 
+## Code, not English
+
+One thing I refuse to use AI for is writing English.
+
+I've seen tools that purport to write tech specs for you, but there's something about taking a list of bullet points and using an AI to expand it into a tech doc format that misses the purpose of writing the doc. On the other end the reader may take a doc and use an AI to condense it into a list of bullet points. Sure, you could argue that this is a signal that the doc itself is a process without meaning and we should cut out the middleman and exchange terse slack messages.
+
+But to me writing is one of the best ways to think. Maybe I myself am a big LLM, but by writing words down on a page (or in a Google doc or in a terminal) it forces me to think through the subject I'm writing about. Then by editing I'm able to consider my audience and think about how to frame my argument for them. There's a bit of a gamesmanship aspect to this - who is going to read this and how do I set up my argument for them? Then I tend to think about what questions they might ask and how I would answer them. It all leads to me understanding the domain much better.
+
+Feeding bullet points to Sonnet and spitting the result out for a tech spec loses all of the benefit for the user.
+
+Now, what I do like:
+
 ## CLI-native Tools
 
 I really like tools like Claude Code and Amazon Q CLI. Since I work at the Zon I use Q pretty often and I find it nice. As a vim user it "feels" good to have a terminal-native app. It's easy to open two tabs for development, one for vim and one for Q and iterate.
