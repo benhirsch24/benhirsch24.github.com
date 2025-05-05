@@ -24,3 +24,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `posts_md/`: Markdown source for blog posts
 - `posts/`: Generated HTML blog posts
 - Post filenames: `YYYY-MM-DD_slug.md` → `YYYY-MM-DD-slug.html`
+
+## Post Formatting
+- First paragraphs of posts are automatically extracted and displayed as previews on index and archive pages
+- Post previews are limited to 250 characters with ellipsis
+- YAML frontmatter is used for metadata (date, title, etc.) at the beginning of each post
+- Each post should start with a level 1 heading (#) for the title
