@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Home - Ben Hirsch</title>
+    <title>{{ page_title }} - Ben Hirsch</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./css/main.css">
 </head>
@@ -20,23 +20,7 @@
     </header>
 
     <main>
-        
-    <section class="recent-posts">
-        <h1>Recent Posts</h1>
-        
-    <div class="post">
-        <h2 class="post-title"><a href="posts/2024-01-12-04_43_remote-relay.html">Remote Relay</a></h2>
-        <div class="post-info">2024-01-12 04:43</div>
-    </div>
-    
-    <div class="post">
-        <h2 class="post-title"><a href="posts/2023-12-28-project-ignition.html">Project Ignition</a></h2>
-        <div class="post-info">December 28, 2023</div>
-    </div>
-    
-        <p><a href="./archive.html">View all posts</a></p>
-    </section>
-    
+        {{ content }}
     </main>
 
     <footer>

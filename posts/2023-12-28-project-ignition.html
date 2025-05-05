@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project Ignition - Ben Hirsch</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/main.css">
+</head>
+<body>
+    <header>
+        <h1><a href="./">Ben Hirsch</a></h1>
+        <nav>
+            <a href="./">Home</a>
+            <a href="./archive.html">Archive</a>
+            <a href="https://github.com/benhirsch24">GitHub</a>
+            <a href="https://linkedin.com/in/benhirsch24">LinkedIn</a>
+            <a href="./about.html">About</a>
+        </nav>
+    </header>
+
+    <main>
+        
+    <article class="post">
+        <h1 class="post-title">Project Ignition</h1>
+        <div class="post-info">December 28, 2023</div>
+        <div class="post-content">
+            <h1>Project Ignition</h1>
+<p>This project came about because Twitch generously gives us two weeks off between Christmas and New Years. It's an amazing perk where I get to stop actively thinking about work for a bit (of course I'm checking Slack here and there to make sure nothing blew up and turning over some ideas for 2024 in the back of my head), but that doesn't stop me from wanting to do... <em>something</em>. I wasn't quite sure what though, but I knew I wanted to program something for fun; something that had nothing to do with developing my career or developing skills for future monetary gain, just fun like how I got into programming. "<em>I want to make something stupid</em>" as I told my girlfriend.</p>
+<p>Then I went to smoke a tri-tip in my <a href="https://www.kamadojoe.com/products/classic-joe-iii">Kamado Joe Classic 3</a> and realized that my meat thermometer couldn't hold a charge no matter how long it was plugged in. I probably could have spent more time figuring this out, but I knew that there was this thermometer from this place <a href="https://combustion.inc/">Combustion Inc</a> and J. Kenji Lopez-Alt recommended it.</p>
+<p>Apparently it has <strong>8</strong> sensors and can predict the <strong>true core temperature</strong> of your meat. That's all well and cool, but after browsing the page I noticed that they have documentation for developers and an open spec for their Bluetooth implementation. That's when I came up with my idea: I bought a <a href="https://www.adafruit.com/product/4296">Raspberry Pi 4</a> because the 5 was out of stock, a <a href="https://www.adafruit.com/product/4484">tiny screen</a>, and a <a href="https://www.adafruit.com/product/3367">USB microphone</a> and patiently waited for them all to arrive. I'd make... a thing. A display of sorts, maybe more.</p>
+<h1>Rust-bustion</h1>
+<p>That's what started <a href="https://github.com/benhirsch24/rustbustion">Rustbustion</a>, a stupid program to talk from a Raspberry Pi to a bluetooth thermometer. I decided to use Rust because I like the language. I've followed it for a few years and even got to ship a production feature (well it's planning to GA in Q1 2024) using it and CGo and it's an enjoyable systems language. I might not build an entire company on Rust, but it's fun to use.</p>
+<h2>Basic Connection</h2>
+<p>My first goal was just to talk to the dang thing and figure out how this whole Bluetooth deal worked.</p>
+<p>I started with using a library called <a href="https://docs.rs/bluer/latest/bluer/">BlueR</a> which seems to be official Rust bindings to <a href="http://www.bluez.org/">BlueZ</a> which is the Linux stack's implementation of Bluetooth. From what I've gathered programs use BlueZ by interfacing with <a href="https://www.freedesktop.org/wiki/Software/dbus/">DBus</a> which is a message bus used for inter-process communication. Programs send a message with a namespace to DBus which routes it to the correct service and listens for the answer.</p>
+<p>There was some basic setup to <a href="https://scribles.net/updating-bluez-on-raspberry-pi-from-5-43-to-5-50/">update the Raspberry Pi bluetooth stack and install some dependencies</a> but once I got that worked out I was able to use the <a href="https://github.com/bluez/bluer/blob/e7b745d6c7d4447641b5bdefa0879274b051939f/bluer/examples/gatt_client.rs#L161">BlueR client example</a> to start seeing what devices were out there chatting.</p>
+<p>From the <a href="https://github.com/combustion-inc/combustion-documentation/blob/main/probe_ble_specification.rst#legacy-ble-4-0-advertisement-packet">Combustion documentation</a> I saw that the first two bytes of the manufacturer data in the advertisement packet were <code>0x09C7</code> so it was easy enough to <a href="https://github.com/benhirsch24/rustbustion/blob/01d6e7f687d02ecd485adf2aa8c9eb215cb70c2f/src/main.rs#L140">look for that</a>. I could scan the ether for Bluetooth advertisements, find my thermometer, connect to it, and disconnect. Ready to make a billion bucks!</p>
+<h3>Joys of Hobby Programming</h3>
+<p>As an aside I went to my girlfriend's family's home for Christmas and apparently left the thermometer out the entire time, so when I came back it was out of battery. After charging it for a few hours I could no longer discover it from my program. Wtf!</p>
+<p>I ended up using <code>bluetoothctl</code> to debug this. The rough steps to deal with this (from memory) were to:</p>
+<ol>
+<li><code>sudo bluetoothd</code> in one terminal to run the bluetooth daemon</li>
+<li>In another terminal, <code>bluetoothctl</code> and enter into the CLI app</li>
+<li><code>devices</code> to list the known devices. <code>disconnect &lt;address&gt;</code> and <code>remove &lt;address&gt;</code> to remove it from the list of known addresses to the Pi.</li>
+</ol>
+<p>At this point it still didn't show up. After fidgeting with it by docking and removing it repeatedly it did show back up. I'm unsure if these steps were necessary but learning a bit about <code>bluetoothctl</code> would prove to be useful down the line.</p>
+<h2>Milestone 2: how hot is it?</h2>
+<p>Having achieved the monumental task of discovering and connecting to the thermometer it was time to read some data from it. My bluetooth knowledge journey commenced.</p>
+<p>A Bluetooth device can expose one or more Services each with their own unique UUID the manufacturer tells you about. Each service can have one or more Characteristics again with their own UUIDs.</p>
+<p>To read the probe temperature (this is the probe at the very tip of the thermometer) I would <a href="https://github.com/benhirsch24/rustbustion/blob/main/src/main.rs#L108">find the Service</a> with UUID <code>00000100-CAAB-3792-3D44-97AE51C1407A</code></p>
+<pre><code>    let mut probe_service: Option&lt;Service&gt; = None;
+    let mut uart_service: Option&lt;Service&gt; = None;
+
+    for service in device.services().await? {
+        let uuid = service.uuid().await?;
+        info!(&quot;  Service UUID: {} ID: {}&quot;, &amp;uuid, service.id());
+        if uuid == probe_uuid {
+            probe_service.replace(service.clone());
+        } else if uuid == uart_uuid {
+            uart_service.replace(service.clone());
+        }
+        info!(&quot;  Service data: {:?}&quot;, service.all_properties().await?);
+    }
+</code></pre>
+<p>List the Characteristics (there is only one), interrogate it to make sure it is "readable", and read it which ends up returning 48 bytes. <a href="https://github.com/benhirsch24/rustbustion/blob/01d6e7f687d02ecd485adf2aa8c9eb215cb70c2f/src/main.rs#L45C1-L56C1">Code Permalink</a></p>
+<pre><code>    for c in combustion.probe_status_service.characteristics().await? {
+        let uuid = c.uuid().await?;
+        info!(&quot;Probe Status c: {}&quot;, &amp;uuid);
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(2000));
+        loop {
+            tokio::select! {
+                _ = interval.tick() =&gt; {
+                    // If the characteristic flags includes &quot;read&quot;
+                    if c.flags().await?.read {
+                        // Read it
+                        let value = c.read().await?;
+
+</code></pre>
+<h3>Next Great Adventure</h3>
+<p>At this point I have a blob of data. <a href="https://github.com/combustion-inc/combustion-documentation/blob/main/probe_ble_specification.rst#probe-status-service">The docs seem pretty straightforward as to what I got</a>. Two u32 integers that tell me how many records there are</p>
+<pre><code>                        let min_bytes: [u8; 4] = [value[0], value[1], value[2], value[3]];
+                        let max_bytes: [u8; 4] = [value[4], value[5], value[6], value[7]];
+                        let min = u32::from_ne_bytes(min_bytes);
+                        let max = u32::from_ne_bytes(max_bytes);
+                        info!(&quot;Min {} max {}&quot;, min, max);
+</code></pre>
+<p>and then <a href="https://github.com/combustion-inc/combustion-documentation/blob/main/probe_ble_specification.rst#raw-temperature-data">13 bytes with the 8 temperatures</a>, 13 bits each. Celsius is then calculated from this 13 bit number as <code>C = 0.05 * N - 20</code>.</p>
+<p>Unfortunately this took me a while to figure out to my own chagrin. Reader, I've done my fair share of bit-twiddling. My first job out of college was programming GPUs and warping images so I've written a PPM parser and writer many many times. I quantized floats into u8s to speed up GPU kernels before LLMs were a thing.</p>
+<p>Somehow though it took me hours to figure this thing out.</p>
+<p>One of the things that really helped was using <code>bluetoothctl</code> to play around with the thermometer a bit faster. I could <code>connect &lt;address&gt;</code> to the device, <code>menu gatt</code> to get to the remote services menu, <code>list-attributes</code> to list all the attributes, <code>select-attribute &lt;attribute&gt;</code>, and finally <code>read</code> to read it.</p>
+<p>From there I'd <code>read</code> the attribute over and over while warming the probe with my fingers. I'd watch bytes 8 &amp; 9 tick up from <code>0xDF 0x03</code> to <code>0xFF 0x03</code> and back down and could not figure out to arrange the first 13 bits just so.</p>
+<p>Eventually I wrote an <a href="https://github.com/benhirsch24/rustbustion/blob/main/extra/repr.c">easy C program</a> to play with as I found a <a href="https://old.reddit.com/r/combustion_inc/comments/16wvfv3/interpreting_raw_temperature_data/k3cr0fh/">Reddit thread where an employee gave some C code</a> for the packed struct. After playing around with it I finally understood how the bits are laid out:</p>
+<p>For a 13 bit number you would need two bytes: <code>[a8a7a6a5a4a3a2a1, 000a13a12a11a10a9]</code>. Adding a second 13-bit number would require 4 bytes: <code>[a8a7a6a5a4a3a2a1, b3b2b1a13a12a11a10a9, b11b10b9b8b7b6b5b4, 000000b13b12]</code></p>
+<p>Now that I understand this it's so hard to put myself back in my original headspace to figure out how I spent close to 4 hours on this. But I did, oh well. If I couldn't spend 4 hours to understand something simple and then laugh it off afterwards I wouldn't last in this career.</p>
+<p>I found a Rust library called <a href="docs.rs/modular_bitfield">Modular Bitfield</a> where I could <a href="https://github.com/benhirsch24/rustbustion/blob/01d6e7f687d02ecd485adf2aa8c9eb215cb70c2f/src/main.rs#L30">easily define my packed struct</a></p>
+<pre><code>struct RawTempData {
+    t1: B13,
+    t2: B13,
+    t3: B13,
+    ...
+}
+</code></pre>
+<p>And then</p>
+<pre><code>                        let vs: [u8; 13] = value[8..21].try_into().expect(&quot;13&quot;);
+                        let unpacked = RawTempData::from_bytes(vs);
+                        let t1c = (unpacked.t1() * 5 - 2000) as f32 / 100.0;
+</code></pre>
+<p>And we were cooking! Metaphorically, I haven't yet cooked with the thermometer.</p>
+<h3>Final touches</h3>
+<p>I added a simple server using <a href="https://hyper.rs">Hyper</a> to expose the last read temperature value as a local server so I could <code>curl http://127.0.0.1:3000</code> to get that numerical value. I also spawned a task to listen for CtrlC using <code>tokio::signal::ctrl_c()</code> to gracefully shut down the program and that was that. A good first "stupid fun" Bluetooth program.</p>
+<h2>Display</h2>
+<p>I had one more mission and that was to display something on my tiny tiny touch screen.</p>
+<p>It's pretty basic, but I started with the Adafruit example code and <a href="https://github.com/benhirsch24/rustbustion/blob/01d6e7f687d02ecd485adf2aa8c9eb215cb70c2f/display.py#L49C1-L62C1">ended up with this</a>:</p>
+<pre><code>    while True:
+        draw.rectangle((0, 80, 240, 160), outline=0, fill=(0, 255, 0))
+        f = urllib.request.urlopen(&quot;http://127.0.0.1:3000&quot;)
+        temp = f.read().decode(&quot;utf-8&quot;)
+        draw.text((x, y), &quot;Temp: &quot; + temp, font=font, fill=&quot;#FFFFFF&quot;)
+        coords = &quot;X: &quot; + str(x) + &quot; Y: &quot; + str(y)
+        draw.text((0, 0), coords, font=font, fill=&quot;#FFFFFF&quot;)
+        display.image(image, 180)
+        draw.rectangle((0, 0, 240, 320), outline=0, fill=0)
+        if buttonA.value and not buttonB.value:
+            y += 5
+        if not buttonA.value and buttonB.value:
+            y -= 5
+</code></pre>
+<p>Each loop we pull the latest temperature from the HTTP server and write it to the screen. The buttons move the text up and down. To learn about the coordinate system I display the current coordinates of the temperature in the upper left. Then we wipe and repeat in a tight loop.</p>
+<p>Simple, stupid, fun.</p>
+<h1>What's Next</h1>
+<p>Here's a brainstormed list of ideas for what to do next:</p>
+<ol>
+<li>Pull more data off the probe. It looks like there are <a href="https://github.com/combustion-inc/combustion-documentation/blob/main/probe_ble_specification.rst#read-logs-0x04">temperature logs</a> so I could display graphs or show the last N temperatures. There's also various prediction modes.<ol>
+<li>From here I could page through different options with the display.</li>
+</ol>
+</li>
+<li>Send data to the cloud.<ol>
+<li>Simple range extender for when I'm out and about and not in BT range.</li>
+<li>Send and store log data per item cooked</li>
+<li>Create a "Hey what's cookin" website where I create a unique link per cook to send to friends for watching. That way they know exactly when to show up for when it'll be done.</li>
+</ol>
+</li>
+<li>Display little images on the Pi display corresponding to the item cooking<ol>
+<li>This one does relate to "career" things a little, but I'd like to implement a simple Stable Diffusion model to learn how that works. Depending how deep the rabbit hole goes and how much time I have I could optimize it for the little Pi GPU.</li>
+</ol>
+</li>
+<li>"Productionize" it by starting the Rust and Display programs at startup so I can simply plug the Pi in downstairs near my WiFi and the probe and have it hook up immediately to the thermometer rather than having to use mouse/keyboard/display</li>
+</ol>
+        </div>
+    </article>
+    
+    </main>
+
+    <footer>
+        <p>© Ben Hirsch. Built with ♥️  by Claude Code.</p>
+    </footer>
+</body>
+</html>
