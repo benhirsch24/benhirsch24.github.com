@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import os
 import re
 import glob
@@ -9,6 +10,7 @@ from bs4 import BeautifulSoup
 from pathlib import Path
 
 # Configuration
+DRAFTS_MD_DIR = "/Users/ben/benhirsch24.github.com/drafts"
 POSTS_MD_DIR = "/Users/ben/benhirsch24.github.com/posts_md"
 POSTS_DIR = "/Users/ben/benhirsch24.github.com/posts"
 INDEX_HTML = "/Users/ben/benhirsch24.github.com/index.html"
@@ -159,7 +161,7 @@ def convert_md_to_html(md_path, layout_template):
         'preview': preview
     }
 
-def process_markdown_posts():
+def process_markdown_posts(include_drafts=False):
     """Process all markdown files in posts_md directory"""
     # Read the layout template
     layout_template = read_layout_template()
@@ -169,10 +171,11 @@ def process_markdown_posts():
 
     # Get all markdown files
     md_files = glob.glob(os.path.join(POSTS_MD_DIR, "*.md"))
+    draft_md_files = glob.glob(os.path.join(DRAFTS_MD_DIR, "*.md")) if include_drafts else []
 
     # Process each file
     processed_files = []
-    for md_file in md_files:
+    for md_file in md_files + draft_md_files:
         post_info = convert_md_to_html(md_file, layout_template)
         processed_files.append(post_info)
         print(f"Processed {md_file} -> {post_info['path']}")
@@ -346,8 +349,19 @@ def main():
     """Main function to build the entire site."""
     print("Building site...")
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--include-drafts", action='store_true', help='whether to build posts from drafts/ directory')
+    args = parser.parse_args()
+
+    # Delete all posts (in case there were drafts that can be deleted)
+    for fp in glob.glob(os.path.join(POSTS_DIR, "*.html")):
+        try:
+            os.remove(fp)
+        except OSError as e:
+            print(f"Error removing {fp}: {e}")
+
     # Process markdown posts
-    posts = process_markdown_posts()
+    posts = process_markdown_posts(args.include_drafts)
     print(f"\nConverted {len(posts)} markdown files to HTML.")
 
     # Create index.html
