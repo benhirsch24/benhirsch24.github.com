@@ -65,7 +65,7 @@
 </ul>
 <p>HTTP/1.1 priorities:
 1. Keepalive
-2. Transcoder-encoding: chunked</p>
+2. Transfer-encoding: chunked at some point</p>
 <p>Basic operation:
 1. Request for object comes in
 2. If it's in the cache, serve
@@ -167,7 +167,7 @@ fn main() {
 <p>As a brief aside, let's prototype some comparisons with glommio and then serve a static 1KB file with nginx.</p>
 <p>Glommio is pretty straightforward. Obviously it's very nice that you can do async with it. You use their implementations of TcpStream and TcpListener which use io_uring under the hood.</p>
 <p>At some point I would want to reduce the number of allocations I do (always allocating 1KB request buffers on the heap). Re-use request objects or something.</p>
-<p>First little bench, but of course this is on a VM</p>
+<p>First little bench, but of course this is on a VM locally.</p>
 <p>Glommio:</p>
 <pre><code>ben@lima-uring:/Users/ben/iouring_cache/vegeta$ echo &quot;GET http://127.0.0.1:80/object/1&quot; | ./vegeta -cpus 1 attack -duration=10s | tee results.bin | ./vegeta report
 Requests      [total, rate, throughput]         500, 50.10, 50.09
@@ -203,12 +203,13 @@ Error Set:
 unexpected EOF
 </code></pre>
 <p><code>[2025-09-28T05:09:00Z DEBUG iouring_cache] Responded! 5 331318</code></p>
-<p>Ok we're writing 330KB in the first send. I could recognize this from the code, but I just want to explore this a bit.</p>
+<p>Ok we're writing 330KB in the send call. I don't yet read the result of the write call so I'm probably filling up some buffer. I think probably the socket is giving backpressure once the TCP cwnd fills up which then blocks send.</p>
 <p>Captured a peer connection with <code>ss -tinp state established</code></p>
 <pre><code>0                     0                                    172.31.16.182:8080                                 172.31.23.85:33791
          cubic wscale:7,7 rto:200 rtt:0.255/0.127 mss:8949 pmtu:9001 rcvmss:536 advmss:8949 cwnd:10 segs_in:2 send 2807529412bps pacing_rate 5615058816bps delivered:1 app_limited rcv_space:56575 rcv_ssthresh:56575 minrtt:0.255 snd_wnd:62848
 </code></pre>
 <p>This doesn't really tell me too much. I'll just fix the sending code... another day. Tomorrow is my wedding anniversary, I shouldn't work on it tomorrow if I want to stay married.</p>
+<p>ChatGPT was telling me to increase wmem (on server) and rmem (on load tester).</p>
 <p>Initial wmem:</p>
 <pre><code>[ssm-user@server ~]$ cat /proc/sys/net/ipv4/tcp_wmem
 4096    20480   4194304
@@ -229,11 +230,13 @@ unexpected EOF
 [2025-09-28T16:27:04Z DEBUG iouring_cache] Responded! 5 105633
 </code></pre>
 <p>Nope, ok, let's stop. Also FYI: you can't strace io_uring because of course the only syscall you'll see is <code>io_uring_enter</code> :')</p>
+<p>If someone wants to inform me how to do this that would be great. Just for my own knowledge. Otherwise I'll have to dig through Linux source code or something.</p>
 <h3>NEXT: Fix sending code 9/28</h3>
 <p>Trying to do this before my wife gets up :)</p>
 <p>Wrote a very straightforward way of sending all the data but it looks like using a String is biting me in the butt when doing slicing with Unicode. I used ChatGPT (I know) to generate a bunch of text, but of course being AI, it added a bunch of Unicode llamas. So when it writes data but has to slice within a Unicode character the Rust String slicing code complains (as it should). I'd probably want to make this content-type application/bytes (which I should to send video anyways).</p>
 <p>I ended up converting the String to a <code>bytes::Bytes</code> and slicing it like that which feels much more ergonomic and works.</p>
 <p><em>Interesting</em>: Normally for syscall errors the function returns -1 and the error code is appropriately set. For iouring instead the negated error code is returned. So for example, I've been getting an error -32. This is because I was curling the server with <code>curl -v address | head</code> so of course it only reads the first 10 lines then hangs up. Looked into it and 32 is the return code for <code>EPIPE</code> which makes sense - the other end hung up.</p>
+<p>Of course if I had read the io uring man page I'd see this was called out.</p>
 <h4>Aside</h4>
 <p>For a while (eh 1-2 hours maybe?) I was testing the <code>/health</code> endpoint and slamming my head against the wall as to why the server was only sending 40 bytes. Why why why? Then I finally realized that was the health endpoint vegeta was testing. So here's some notes from a fool:</p>
 <p>Hmm bytes in is 14,000? Only 20 bytes per request?</p>

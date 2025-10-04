@@ -57,7 +57,7 @@ Routes:
 
 HTTP/1.1 priorities:
 1. Keepalive
-2. Transcoder-encoding: chunked
+2. Transfer-encoding: chunked at some point
 
 Basic operation:
 1. Request for object comes in
@@ -193,7 +193,7 @@ Glommio is pretty straightforward. Obviously it's very nice that you can do asyn
 
 At some point I would want to reduce the number of allocations I do (always allocating 1KB request buffers on the heap). Re-use request objects or something.
 
-First little bench, but of course this is on a VM
+First little bench, but of course this is on a VM locally.
 
 Glommio:
 
@@ -241,7 +241,7 @@ unexpected EOF
 
 `[2025-09-28T05:09:00Z DEBUG iouring_cache] Responded! 5 331318`
 
-Ok we're writing 330KB in the first send. I could recognize this from the code, but I just want to explore this a bit.
+Ok we're writing 330KB in the send call. I don't yet read the result of the write call so I'm probably filling up some buffer. I think probably the socket is giving backpressure once the TCP cwnd fills up which then blocks send.
 
 Captured a peer connection with `ss -tinp state established`
 
@@ -251,6 +251,8 @@ Captured a peer connection with `ss -tinp state established`
 ```
 
 This doesn't really tell me too much. I'll just fix the sending code... another day. Tomorrow is my wedding anniversary, I shouldn't work on it tomorrow if I want to stay married.
+
+ChatGPT was telling me to increase wmem (on server) and rmem (on load tester).
 
 Initial wmem:
 
@@ -279,6 +281,8 @@ Ugh I couldn't stay away. I was trying this on my local vm. If I set the send bu
 ```
 Nope, ok, let's stop. Also FYI: you can't strace io\_uring because of course the only syscall you'll see is `io_uring_enter` :')
 
+If someone wants to inform me how to do this that would be great. Just for my own knowledge. Otherwise I'll have to dig through Linux source code or something.
+
 ### NEXT: Fix sending code 9/28
 
 Trying to do this before my wife gets up :)
@@ -288,6 +292,8 @@ Wrote a very straightforward way of sending all the data but it looks like using
 I ended up converting the String to a `bytes::Bytes` and slicing it like that which feels much more ergonomic and works.
 
 *Interesting*: Normally for syscall errors the function returns -1 and the error code is appropriately set. For iouring instead the negated error code is returned. So for example, I've been getting an error -32. This is because I was curling the server with `curl -v address | head` so of course it only reads the first 10 lines then hangs up. Looked into it and 32 is the return code for `EPIPE` which makes sense - the other end hung up.
+
+Of course if I had read the io uring man page I'd see this was called out.
 
 #### Aside
 
