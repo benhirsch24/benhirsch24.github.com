@@ -44,7 +44,7 @@
 <p>I think what I'd want to do is: If I have lots of work (ie lots coming off the completion queue) then I batch up a bunch as I can into few <code>submit</code> calls. However if I do not have a lot of work, then I just submit whatever I have into <code>submit_and_wait</code>. This way if we have lots of work we make few syscalls. If we have little work then we're just queueing what we have and we park the program until the work arrives. If I busy loop (ie do not call <code>submit_and_wait</code>) then I'm hoping that more work arrives on the completion queue and enough will arrive that I can submit another batch. However if that's not the case then I'm just eating CPU looping over and over for work that doesn't arrive.</p>
 <p>Btw multishot accept was very simple and does make the program easier though. Same with multishot timeout.</p>
 <p>I'm adding some histogram metrics to see how long between writes I'm going. I'm also trying to add some stats around submit_and_wait so I know how many IOps I'm queueing each time there instead of in batches in submit. I feel like if I wanted to try my "adaptive batch size" idea this would be the first step.</p>
-<h3><a href="#understanding">Understanding IO Uring more</a></h3>
+<h3 id="understanding">Understanding IO Uring more</h3>
 <p>To build a better intuition with io uring I downloaded the Linux source code and then went through it with the help of OpenAI's Codex. I feel like I have a better understanding of how this is actually working (and a better understanding of Linux workings in general). Here's the transcript of our conversation. I edited some of the cruft out (where it makes a plan, explores files, etc).</p>
 <p>I found this extremely helpful, and then going from this conversation back to the <a href="https://blog.cloudflare.com/missing-manuals-io_uring-worker-pool/">CloudFlare Missing Manuals - io_uring worker pool</a> article I had a way better idea of what was going on in that article.</p>
 <pre><code>▌ read through the code in io_uring to pull it into your context. I'm specifically interested in tracing the path that requests take from submission queue (enqueued by io_uring_enter) to how they're scheduled for
@@ -336,7 +336,7 @@
 <li>This API feels pretty ephemeral as a system. But in a CDN you'd want to fetch the content if it's already been produced/cached. Replayability of content would be interesting to add.</li>
 <li>Load testing isn't as simple as vegeta or wrk. Probably would want to write something simple in Go or Rust that has a configurable number of subscribers per topic and how often each publisher publishes. Also the size of the publish payload should be ~1MB like I'm testing now, but we could vary the sizes. This feels vibe-codeable.</li>
 </ul>
-<h3><a href="#abstraction">10/7 Refactoring, NetDevConf presentations</a></h3>
+<h3 id="abstraction">10/7 Refactoring, NetDevConf presentations</h3>
 <p>Just doing some refactoring after the first day of our IVS onsite</p>
 <p>Thinking about how to abstract a little bit more. I think it'd be nice, but I think it'd be hard. For example if I add more and more routes, it would be difficult to have all this logic in "serve".</p>
 <p>Ideally I probably want to pull the IoUring logic out into its own module, then share that with Request, and let Request add things to the submission queue. Then the main loop is just pulling from my deque of events, pushing to io_uring sq, pulling from cq, and then poking requests to keep going.</p>
@@ -346,7 +346,7 @@
 <p>Reading more of these netdevconf presentations in general is interesting, here's one about <a href="https://netdevconf.info/0x18/docs/netdev-0x18-paper10-talk-slides/Real%20world%20tips,%20tricks,%20and%20notes%20of%20using%20epoll-based%20busy%20polling%20v2.pdf">busy-polling to reduce latency</a>. And I was just thinking through how IRQs work and learning more (/re-learning, I did take networking and OSes in college but it's been a while since I've had to think on this level) about the Linux networking stack, so great timing. There's actually a ton of good resources when you start looking for them.</p>
 <p><strong>Next</strong>: Probably a skosh more abstraction, then implement publish and subscribe as I talked about before.</p>
 <p>I think I want to do what I discussed above: have my own Uring abstraction where Requests can own a reference to it and then submit their own entries to the (internal) submission queue. Then the main loop just drives everything from there.</p>
-<h3><a href="#more-abstraction">10/10 More abstraction</a></h3>
+<h3 id="more-abstraction">10/10 More abstraction</h3>
 <p>Refactored the implementation completely. My goal was to separate out any notion of Requests from the main event loop. I also didn't want to pass references to the Uring around to different users, so I went with a thread-local variable so that Connections could call <code>uring::submit(...)</code> from anywhere. That also makes the event loop simple as it doesn't have to think about pushing entries into its backlog.</p>
 <p>There's 3 main commits:</p>
 <p><a href="https://github.com/benhirsch24/iouring_bench/commit/8969bcd8c46ce1e3bd1a1bf4adc4f9804a986318">Move the event loop into its own file</a> - This just uses an anonymous function to create requests. I didn't like how I had to use a request trait and then Box it. This is also where I started with thread-local variables.</p>
@@ -432,7 +432,7 @@ uring::run(move |result, user_data, flags| {
 <p>I'm still semi-unhappy with this as I don't think the user of a library should have to define uses for opcodes like this... ideally maybe I could have <code>uring::set_timeout(|| do_timeout())</code> and then <code>uring::set_reader(...)</code>? I'll have to noodle on it.</p>
 <p>Or maybe I have a Server type which wraps the uring::run() call and then I provide something to Server? The most ideal of course would be an async runtime which is simplest, but of course runs into weirdness when you drop/cancel Futures.</p>
 <p>Anyways, my goal is not to make the perfectly useable library here, it's to benchmark shit and make lots of packets go.</p>
-<h3><a href="#pubsub-server">10/11 Writing Pubsub Server</a></h3>
+<h3 id="pubsub-server">10/11 Writing Pubsub Server</h3>
 <p>Let's get to making a PUB/SUB type system. First there's the protocol. I want to have it be super simple:</p>
 <ol>
 <li>Subscribe to channel</li>
@@ -504,7 +504,7 @@ fn handle_publish(stream) {
 <p>I think there's a better way to do this with BytesMut and Bytes, I need to get there. I could probably do something with <code>self.read_buffer.split_off</code>. Or I wonder if <code>bytes::Buf</code> could be useful? Something to look into.</p>
 <p>Bytes was actually very easy. I should go through and replace read buffer with it.</p>
 <p>I should also try to move every read and write over to the BufferPool. That would probably get me to a really good place for when I want to do kernel buffers. Then I'd check a buffer out of the pool for a read, check it back in when I'm done, and same with sends.</p>
-<h3><a href="#dogfooding">Cool test: Can I make a pubsub load test with my own library?</a></h3>
+<h3 id="dogfooding">Cool test: Can I make a pubsub load test with my own library?</h3>
 <p><code>Nc</code> is annoying me because it won't always close the socket for some reason <a href="https://stackoverflow.com/questions/53634911/why-does-sending-d-with-netcat-not-trigger-an-eof-when-reading-from-a-unix-sock">which is apparently a known issue</a>.</p>
 <p>I want to test that my pubsub implementation works. So to do that I want to:</p>
 <ol>
@@ -539,7 +539,7 @@ conn.close()
 <p>Got a very simple send and receive working. I think the next thing would be to coordinate between publisher and subscriber to do what I was talking about above.</p>
 <h3>Popping up one level</h3>
 <p>Ok so why did I go down this path: I want to see if I can get better performance gains for io_uring if I have a workload that can bundle many syscalls in one submission. One way I can test that out is with a fan-out pubsub system with many subscribers to few publishers. I should try to get to a point where I can test this theory as soon as possible.</p>
-<h3><a href="#callbacks">10/12 PubSub client with Callbacks</a></h3>
+<h3 id="callbacks">10/12 PubSub client with Callbacks</h3>
 <p>It's nice that this toy program works, but how to scale it up? Ideally I could parameterize and say N publishers with M subscribers per publisher.</p>
 <p>The other thing I was thinking about last night was extracting the pubsub server from my src/main.rs and then making this an actual library crate and having a src/bin/http_server.rs and src/bin/pubsub_server.rs. It would probably be much cleaner.</p>
 <p>Also this state machine handling gets very complex. I was thinking I could set up a callback system where I register callbacks to unique completion event IDs. Considering that the user data is a u64 I could register a callback into a global callback thingy and then start writing callbacks. EG:</p>

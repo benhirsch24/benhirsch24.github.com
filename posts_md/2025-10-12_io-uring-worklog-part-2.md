@@ -42,7 +42,7 @@ Btw multishot accept was very simple and does make the program easier though. Sa
 
 I'm adding some histogram metrics to see how long between writes I'm going. I'm also trying to add some stats around submit_and_wait so I know how many IOps I'm queueing each time there instead of in batches in submit. I feel like if I wanted to try my "adaptive batch size" idea this would be the first step.
 
-### [Understanding IO Uring more](#understanding)
+### Understanding IO Uring more {#understanding}
 
 To build a better intuition with io uring I downloaded the Linux source code and then went through it with the help of OpenAI's Codex. I feel like I have a better understanding of how this is actually working (and a better understanding of Linux workings in general). Here's the transcript of our conversation. I edited some of the cruft out (where it makes a plan, explores files, etc).
 
@@ -341,7 +341,7 @@ Nuances I can think of:
 * This API feels pretty ephemeral as a system. But in a CDN you'd want to fetch the content if it's already been produced/cached. Replayability of content would be interesting to add.
 * Load testing isn't as simple as vegeta or wrk. Probably would want to write something simple in Go or Rust that has a configurable number of subscribers per topic and how often each publisher publishes. Also the size of the publish payload should be ~1MB like I'm testing now, but we could vary the sizes. This feels vibe-codeable.
 
-### [10/7 Refactoring, NetDevConf presentations](#abstraction)
+### 10/7 Refactoring, NetDevConf presentations {#abstraction}
 
 Just doing some refactoring after the first day of our IVS onsite
 
@@ -361,7 +361,7 @@ Reading more of these netdevconf presentations in general is interesting, here's
 
 I think I want to do what I discussed above: have my own Uring abstraction where Requests can own a reference to it and then submit their own entries to the (internal) submission queue. Then the main loop just drives everything from there.
 
-### [10/10 More abstraction](#more-abstraction)
+### 10/10 More abstraction {#more-abstraction}
 
 Refactored the implementation completely. My goal was to separate out any notion of Requests from the main event loop. I also didn't want to pass references to the Uring around to different users, so I went with a thread-local variable so that Connections could call `uring::submit(...)` from anywhere. That also makes the event loop simple as it doesn't have to think about pushing entries into its backlog.
 
@@ -468,7 +468,7 @@ Or maybe I have a Server type which wraps the uring::run() call and then I provi
 
 Anyways, my goal is not to make the perfectly useable library here, it's to benchmark shit and make lots of packets go.
 
-### [10/11 Writing Pubsub Server](#pubsub-server)
+### 10/11 Writing Pubsub Server {#pubsub-server}
 
 Let's get to making a PUB/SUB type system. First there's the protocol. I want to have it be super simple:
 
@@ -562,7 +562,7 @@ Bytes was actually very easy. I should go through and replace read buffer with i
 
 I should also try to move every read and write over to the BufferPool. That would probably get me to a really good place for when I want to do kernel buffers. Then I'd check a buffer out of the pool for a read, check it back in when I'm done, and same with sends.
 
-### [Cool test: Can I make a pubsub load test with my own library?](#dogfooding)
+### Cool test: Can I make a pubsub load test with my own library? {#dogfooding}
 
 `Nc` is annoying me because it won't always close the socket for some reason [which is apparently a known issue](https://stackoverflow.com/questions/53634911/why-does-sending-d-with-netcat-not-trigger-an-eof-when-reading-from-a-unix-sock).
 
@@ -607,7 +607,7 @@ Got a very simple send and receive working. I think the next thing would be to c
 
 Ok so why did I go down this path: I want to see if I can get better performance gains for io_uring if I have a workload that can bundle many syscalls in one submission. One way I can test that out is with a fan-out pubsub system with many subscribers to few publishers. I should try to get to a point where I can test this theory as soon as possible.
 
-### [10/12 PubSub client with Callbacks](#callbacks)
+### 10/12 PubSub client with Callbacks {#callbacks}
 
 It's nice that this toy program works, but how to scale it up? Ideally I could parameterize and say N publishers with M subscribers per publisher.
 

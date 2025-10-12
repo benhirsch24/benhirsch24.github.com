@@ -119,7 +119,8 @@ def convert_md_to_html(md_path, layout_template):
     html_content = markdown.markdown(
         md_content,
         extensions=['markdown.extensions.fenced_code',
-                   'markdown.extensions.tables']
+                   'markdown.extensions.tables',
+                   'attr_list']
     )
 
     # Wrap content in article tag with post styling
