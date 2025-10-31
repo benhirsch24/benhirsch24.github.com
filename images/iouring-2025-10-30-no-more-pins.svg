@@ -1,0 +1,1898 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" width="1200" height="1542" onload="init(evt)" viewBox="0 0 1200 1542" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+<!-- Flame graph stack visualization. See https://github.com/brendangregg/FlameGraph for latest version, and http://www.brendangregg.com/flamegraphs.html for examples. -->
+<!-- NOTES:  -->
+<defs>
+	<linearGradient id="background" y1="0" y2="1" x1="0" x2="0" >
+		<stop stop-color="#eeeeee" offset="5%" />
+		<stop stop-color="#eeeeb0" offset="95%" />
+	</linearGradient>
+</defs>
+<style type="text/css">
+	text { font-family:Verdana; font-size:12px; fill:rgb(0,0,0); }
+	#search, #ignorecase { opacity:0.1; cursor:pointer; }
+	#search:hover, #search.show, #ignorecase:hover, #ignorecase.show { opacity:1; }
+	#subtitle { text-anchor:middle; font-color:rgb(160,160,160); }
+	#title { text-anchor:middle; font-size:17px}
+	#unzoom { cursor:pointer; }
+	#frames > *:hover { stroke:black; stroke-width:0.5; cursor:pointer; }
+	.hide { display:none; }
+	.parent { opacity:0.5; }
+</style>
+<script type="text/ecmascript">
+<![CDATA[
+	"use strict";
+	var details, searchbtn, unzoombtn, matchedtxt, svg, searching, currentSearchTerm, ignorecase, ignorecaseBtn;
+	function init(evt) {
+		details = document.getElementById("details").firstChild;
+		searchbtn = document.getElementById("search");
+		ignorecaseBtn = document.getElementById("ignorecase");
+		unzoombtn = document.getElementById("unzoom");
+		matchedtxt = document.getElementById("matched");
+		svg = document.getElementsByTagName("svg")[0];
+		searching = 0;
+		currentSearchTerm = null;
+
+		// use GET parameters to restore a flamegraphs state.
+		var params = get_params();
+		if (params.x && params.y)
+			zoom(find_group(document.querySelector('[x="' + params.x + '"][y="' + params.y + '"]')));
+                if (params.s) search(params.s);
+	}
+
+	// event listeners
+	window.addEventListener("click", function(e) {
+		var target = find_group(e.target);
+		if (target) {
+			if (target.nodeName == "a") {
+				if (e.ctrlKey === false) return;
+				e.preventDefault();
+			}
+			if (target.classList.contains("parent")) unzoom(true);
+			zoom(target);
+			if (!document.querySelector('.parent')) {
+				// we have basically done a clearzoom so clear the url
+				var params = get_params();
+				if (params.x) delete params.x;
+				if (params.y) delete params.y;
+				history.replaceState(null, null, parse_params(params));
+				unzoombtn.classList.add("hide");
+				return;
+			}
+
+			// set parameters for zoom state
+			var el = target.querySelector("rect");
+			if (el && el.attributes && el.attributes.y && el.attributes._orig_x) {
+				var params = get_params()
+				params.x = el.attributes._orig_x.value;
+				params.y = el.attributes.y.value;
+				history.replaceState(null, null, parse_params(params));
+			}
+		}
+		else if (e.target.id == "unzoom") clearzoom();
+		else if (e.target.id == "search") search_prompt();
+		else if (e.target.id == "ignorecase") toggle_ignorecase();
+	}, false)
+
+	// mouse-over for info
+	// show
+	window.addEventListener("mouseover", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = "Function: " + g_to_text(target);
+	}, false)
+
+	// clear
+	window.addEventListener("mouseout", function(e) {
+		var target = find_group(e.target);
+		if (target) details.nodeValue = ' ';
+	}, false)
+
+	// ctrl-F for search
+	// ctrl-I to toggle case-sensitive search
+	window.addEventListener("keydown",function (e) {
+		if (e.keyCode === 114 || (e.ctrlKey && e.keyCode === 70)) {
+			e.preventDefault();
+			search_prompt();
+		}
+		else if (e.ctrlKey && e.keyCode === 73) {
+			e.preventDefault();
+			toggle_ignorecase();
+		}
+	}, false)
+
+	// functions
+	function get_params() {
+		var params = {};
+		var paramsarr = window.location.search.substr(1).split('&');
+		for (var i = 0; i < paramsarr.length; ++i) {
+			var tmp = paramsarr[i].split("=");
+			if (!tmp[0] || !tmp[1]) continue;
+			params[tmp[0]]  = decodeURIComponent(tmp[1]);
+		}
+		return params;
+	}
+	function parse_params(params) {
+		var uri = "?";
+		for (var key in params) {
+			uri += key + '=' + encodeURIComponent(params[key]) + '&';
+		}
+		if (uri.slice(-1) == "&")
+			uri = uri.substring(0, uri.length - 1);
+		if (uri == '?')
+			uri = window.location.href.split('?')[0];
+		return uri;
+	}
+	function find_child(node, selector) {
+		var children = node.querySelectorAll(selector);
+		if (children.length) return children[0];
+	}
+	function find_group(node) {
+		var parent = node.parentElement;
+		if (!parent) return;
+		if (parent.id == "frames") return node;
+		return find_group(parent);
+	}
+	function orig_save(e, attr, val) {
+		if (e.attributes["_orig_" + attr] != undefined) return;
+		if (e.attributes[attr] == undefined) return;
+		if (val == undefined) val = e.attributes[attr].value;
+		e.setAttribute("_orig_" + attr, val);
+	}
+	function orig_load(e, attr) {
+		if (e.attributes["_orig_"+attr] == undefined) return;
+		e.attributes[attr].value = e.attributes["_orig_" + attr].value;
+		e.removeAttribute("_orig_"+attr);
+	}
+	function g_to_text(e) {
+		var text = find_child(e, "title").firstChild.nodeValue;
+		return (text)
+	}
+	function g_to_func(e) {
+		var func = g_to_text(e);
+		// if there's any manipulation we want to do to the function
+		// name before it's searched, do it here before returning.
+		return (func);
+	}
+	function update_text(e) {
+		var r = find_child(e, "rect");
+		var t = find_child(e, "text");
+		var w = parseFloat(r.attributes.width.value) -3;
+		var txt = find_child(e, "title").textContent.replace(/\([^(]*\)$/,"");
+		t.attributes.x.value = parseFloat(r.attributes.x.value) + 3;
+
+		// Smaller than this size won't fit anything
+		if (w < 2 * 12 * 0.59) {
+			t.textContent = "";
+			return;
+		}
+
+		t.textContent = txt;
+		var sl = t.getSubStringLength(0, txt.length);
+		// check if only whitespace or if we can fit the entire string into width w
+		if (/^ *$/.test(txt) || sl < w)
+			return;
+
+		// this isn't perfect, but gives a good starting point
+		// and avoids calling getSubStringLength too often
+		var start = Math.floor((w/sl) * txt.length);
+		for (var x = start; x > 0; x = x-2) {
+			if (t.getSubStringLength(0, x + 2) <= w) {
+				t.textContent = txt.substring(0, x) + "..";
+				return;
+			}
+		}
+		t.textContent = "";
+	}
+
+	// zoom
+	function zoom_reset(e) {
+		if (e.attributes != undefined) {
+			orig_load(e, "x");
+			orig_load(e, "width");
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_reset(c[i]);
+		}
+	}
+	function zoom_child(e, x, ratio) {
+		if (e.attributes != undefined) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = (parseFloat(e.attributes.x.value) - x - 10) * ratio + 10;
+				if (e.tagName == "text")
+					e.attributes.x.value = find_child(e.parentNode, "rect[x]").attributes.x.value + 3;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseFloat(e.attributes.width.value) * ratio;
+			}
+		}
+
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_child(c[i], x - 10, ratio);
+		}
+	}
+	function zoom_parent(e) {
+		if (e.attributes) {
+			if (e.attributes.x != undefined) {
+				orig_save(e, "x");
+				e.attributes.x.value = 10;
+			}
+			if (e.attributes.width != undefined) {
+				orig_save(e, "width");
+				e.attributes.width.value = parseInt(svg.width.baseVal.value) - (10 * 2);
+			}
+		}
+		if (e.childNodes == undefined) return;
+		for (var i = 0, c = e.childNodes; i < c.length; i++) {
+			zoom_parent(c[i]);
+		}
+	}
+	function zoom(node) {
+		var attr = find_child(node, "rect").attributes;
+		var width = parseFloat(attr.width.value);
+		var xmin = parseFloat(attr.x.value);
+		var xmax = parseFloat(xmin + width);
+		var ymin = parseFloat(attr.y.value);
+		var ratio = (svg.width.baseVal.value - 2 * 10) / width;
+
+		// XXX: Workaround for JavaScript float issues (fix me)
+		var fudge = 0.0001;
+
+		unzoombtn.classList.remove("hide");
+
+		var el = document.getElementById("frames").children;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var a = find_child(e, "rect").attributes;
+			var ex = parseFloat(a.x.value);
+			var ew = parseFloat(a.width.value);
+			var upstack;
+			// Is it an ancestor
+			if (0 == 0) {
+				upstack = parseFloat(a.y.value) > ymin;
+			} else {
+				upstack = parseFloat(a.y.value) < ymin;
+			}
+			if (upstack) {
+				// Direct ancestor
+				if (ex <= xmin && (ex+ew+fudge) >= xmax) {
+					e.classList.add("parent");
+					zoom_parent(e);
+					update_text(e);
+				}
+				// not in current path
+				else
+					e.classList.add("hide");
+			}
+			// Children maybe
+			else {
+				// no common path
+				if (ex < xmin || ex + fudge >= xmax) {
+					e.classList.add("hide");
+				}
+				else {
+					zoom_child(e, xmin, ratio);
+					update_text(e);
+				}
+			}
+		}
+		search();
+	}
+	function unzoom(dont_update_text) {
+		unzoombtn.classList.add("hide");
+		var el = document.getElementById("frames").children;
+		for(var i = 0; i < el.length; i++) {
+			el[i].classList.remove("parent");
+			el[i].classList.remove("hide");
+			zoom_reset(el[i]);
+			if(!dont_update_text) update_text(el[i]);
+		}
+		search();
+	}
+	function clearzoom() {
+		unzoom();
+
+		// remove zoom state
+		var params = get_params();
+		if (params.x) delete params.x;
+		if (params.y) delete params.y;
+		history.replaceState(null, null, parse_params(params));
+	}
+
+	// search
+	function toggle_ignorecase() {
+		ignorecase = !ignorecase;
+		if (ignorecase) {
+			ignorecaseBtn.classList.add("show");
+		} else {
+			ignorecaseBtn.classList.remove("show");
+		}
+		reset_search();
+		search();
+	}
+	function reset_search() {
+		var el = document.querySelectorAll("#frames rect");
+		for (var i = 0; i < el.length; i++) {
+			orig_load(el[i], "fill")
+		}
+		var params = get_params();
+		delete params.s;
+		history.replaceState(null, null, parse_params(params));
+	}
+	function search_prompt() {
+		if (!searching) {
+			var term = prompt("Enter a search term (regexp " +
+			    "allowed, eg: ^ext4_)"
+			    + (ignorecase ? ", ignoring case" : "")
+			    + "\nPress Ctrl-i to toggle case sensitivity", "");
+			if (term != null) search(term);
+		} else {
+			reset_search();
+			searching = 0;
+			currentSearchTerm = null;
+			searchbtn.classList.remove("show");
+			searchbtn.firstChild.nodeValue = "Search"
+			matchedtxt.classList.add("hide");
+			matchedtxt.firstChild.nodeValue = ""
+		}
+	}
+	function search(term) {
+		if (term) currentSearchTerm = term;
+		if (currentSearchTerm === null) return;
+
+		var re = new RegExp(currentSearchTerm, ignorecase ? 'i' : '');
+		var el = document.getElementById("frames").children;
+		var matches = new Object();
+		var maxwidth = 0;
+		for (var i = 0; i < el.length; i++) {
+			var e = el[i];
+			var func = g_to_func(e);
+			var rect = find_child(e, "rect");
+			if (func == null || rect == null)
+				continue;
+
+			// Save max width. Only works as we have a root frame
+			var w = parseFloat(rect.attributes.width.value);
+			if (w > maxwidth)
+				maxwidth = w;
+
+			if (func.match(re)) {
+				// highlight
+				var x = parseFloat(rect.attributes.x.value);
+				orig_save(rect, "fill");
+				rect.attributes.fill.value = "rgb(230,0,230)";
+
+				// remember matches
+				if (matches[x] == undefined) {
+					matches[x] = w;
+				} else {
+					if (w > matches[x]) {
+						// overwrite with parent
+						matches[x] = w;
+					}
+				}
+				searching = 1;
+			}
+		}
+		if (!searching)
+			return;
+		var params = get_params();
+		params.s = currentSearchTerm;
+		history.replaceState(null, null, parse_params(params));
+
+		searchbtn.classList.add("show");
+		searchbtn.firstChild.nodeValue = "Reset Search";
+
+		// calculate percent matched, excluding vertical overlap
+		var count = 0;
+		var lastx = -1;
+		var lastw = 0;
+		var keys = Array();
+		for (k in matches) {
+			if (matches.hasOwnProperty(k))
+				keys.push(k);
+		}
+		// sort the matched frames by their x location
+		// ascending, then width descending
+		keys.sort(function(a, b){
+			return a - b;
+		});
+		// Step through frames saving only the biggest bottom-up frames
+		// thanks to the sort order. This relies on the tree property
+		// where children are always smaller than their parents.
+		var fudge = 0.0001;	// JavaScript floating point
+		for (var k in keys) {
+			var x = parseFloat(keys[k]);
+			var w = matches[keys[k]];
+			if (x >= lastx + lastw - fudge) {
+				count += w;
+				lastx = x;
+				lastw = w;
+			}
+		}
+		// display matched percent
+		matchedtxt.classList.remove("hide");
+		var pct = 100 * count / maxwidth;
+		if (pct != 100) pct = pct.toFixed(1)
+		matchedtxt.firstChild.nodeValue = "Matched: " + pct + "%";
+	}
+]]>
+</script>
+<rect x="0.0" y="0" width="1200.0" height="1542.0" fill="url(#background)"  />
+<text id="title" x="600.00" y="24" >Flame Graph</text>
+<text id="details" x="10.00" y="1525" > </text>
+<text id="unzoom" x="10.00" y="24" class="hide">Reset Zoom</text>
+<text id="search" x="1090.00" y="24" >Search</text>
+<text id="ignorecase" x="1174.00" y="24" >ic</text>
+<text id="matched" x="1090.00" y="1525" > </text>
+<g id="frames">
+<g >
+<title>do_el0_svc (115,577,875 samples, 42.59%)</title><rect x="141.1" y="885" width="502.6" height="15.0" fill="rgb(218,60,14)" rx="2" ry="2" />
+<text  x="144.11" y="895.5" >do_el0_svc</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::try_with (5,025,125 samples, 1.85%)</title><rect x="1124.4" y="741" width="21.9" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="1127.44" y="751.5" >s..</text>
+</g>
+<g >
+<title>sock_rfree (5,025,125 samples, 1.85%)</title><rect x="141.1" y="629" width="21.9" height="15.0" fill="rgb(222,80,19)" rx="2" ry="2" />
+<text  x="144.11" y="639.5" >s..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::remove_entry (5,025,125 samples, 1.85%)</title><rect x="1168.1" y="885" width="21.9" height="15.0" fill="rgb(222,80,19)" rx="2" ry="2" />
+<text  x="1171.15" y="895.5" >h..</text>
+</g>
+<g >
+<title>hashbrown::map::make_hash (5,025,125 samples, 1.85%)</title><rect x="731.1" y="869" width="21.9" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="734.11" y="879.5" >h..</text>
+</g>
+<g >
+<title>core::ptr::read_unaligned (5,025,125 samples, 1.85%)</title><rect x="949.6" y="757" width="21.9" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="952.63" y="767.5" >c..</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::Sip13Rounds as core::hash::sip::Sip&gt;::d_rounds (5,025,125 samples, 1.85%)</title><rect x="643.7" y="789" width="21.9" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="646.70" y="799.5" >&lt;..</text>
+</g>
+<g >
+<title>ipv4_dst_check (5,025,125 samples, 1.85%)</title><rect x="534.4" y="581" width="21.9" height="15.0" fill="rgb(253,222,53)" rx="2" ry="2" />
+<text  x="537.44" y="591.5" >i..</text>
+</g>
+<g >
+<title>sock_sendmsg (50,251,250 samples, 18.52%)</title><rect x="359.6" y="757" width="218.5" height="15.0" fill="rgb(244,183,43)" rx="2" ry="2" />
+<text  x="362.63" y="767.5" >sock_sendmsg</text>
+</g>
+<g >
+<title>iouring_bench::uring::run (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1093" width="1158.1" height="15.0" fill="rgb(252,218,52)" rx="2" ry="2" />
+<text  x="34.85" y="1103.5" >iouring_bench::uring::run</text>
+</g>
+<g >
+<title>iouring_bench::executor::ExecutorInner::schedule_completion (5,025,125 samples, 1.85%)</title><rect x="1124.4" y="709" width="21.9" height="15.0" fill="rgb(209,19,4)" rx="2" ry="2" />
+<text  x="1127.44" y="719.5" >i..</text>
+</g>
+<g >
+<title>std::collections::hash::map::HashMap&lt;K,V,S&gt;::contains_key (5,025,125 samples, 1.85%)</title><rect x="1037.0" y="693" width="21.9" height="15.0" fill="rgb(218,62,14)" rx="2" ry="2" />
+<text  x="1040.04" y="703.5" >s..</text>
+</g>
+<g >
+<title>tcp_v4_do_rcv (20,100,500 samples, 7.41%)</title><rect x="447.0" y="197" width="87.4" height="15.0" fill="rgb(210,26,6)" rx="2" ry="2" />
+<text  x="450.04" y="207.5" >tcp_v4_do_..</text>
+</g>
+<g >
+<title>&lt;futures_util::io::write_all::WriteAll&lt;W&gt; as core::future::future::Future&gt;::poll (10,050,250 samples, 3.70%)</title><rect x="840.4" y="869" width="43.7" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="843.37" y="879.5" >&lt;fut..</text>
+</g>
+<g >
+<title>io_req_task_submit (40,201,000 samples, 14.81%)</title><rect x="141.1" y="725" width="174.8" height="15.0" fill="rgb(234,136,32)" rx="2" ry="2" />
+<text  x="144.11" y="735.5" >io_req_task_submit</text>
+</g>
+<g >
+<title>__do_softirq (25,125,625 samples, 9.26%)</title><rect x="184.8" y="325" width="109.3" height="15.0" fill="rgb(246,191,45)" rx="2" ry="2" />
+<text  x="187.81" y="335.5" >__do_softirq</text>
+</g>
+<g >
+<title>core::hash::impls::&lt;impl core::hash::Hash for u64&gt;::hash (5,025,125 samples, 1.85%)</title><rect x="796.7" y="837" width="21.8" height="15.0" fill="rgb(219,66,15)" rx="2" ry="2" />
+<text  x="799.67" y="847.5" >c..</text>
+</g>
+<g >
+<title>core::hash::BuildHasher::hash_one (5,025,125 samples, 1.85%)</title><rect x="1058.9" y="629" width="21.8" height="15.0" fill="rgb(250,209,50)" rx="2" ry="2" />
+<text  x="1061.89" y="639.5" >c..</text>
+</g>
+<g >
+<title>core::ub_checks::maybe_is_nonoverlapping::runtime (5,025,125 samples, 1.85%)</title><rect x="927.8" y="597" width="21.8" height="15.0" fill="rgb(214,44,10)" rx="2" ry="2" />
+<text  x="930.78" y="607.5" >c..</text>
+</g>
+<g >
+<title>pubsub_client_async::handle_publisher::_$u7b$$u7b$closure$u7d$$u7d$::h04ded215bf89d1ab (30,150,750 samples, 11.11%)</title><rect x="840.4" y="885" width="131.1" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="843.37" y="895.5" >pubsub_client_as..</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::SipHasher13 as core::hash::Hasher&gt;::write (5,025,125 samples, 1.85%)</title><rect x="796.7" y="789" width="21.8" height="15.0" fill="rgb(224,90,21)" rx="2" ry="2" />
+<text  x="799.67" y="799.5" >&lt;..</text>
+</g>
+<g >
+<title>core::ub_checks::maybe_is_nonoverlapping (5,025,125 samples, 1.85%)</title><rect x="1080.7" y="517" width="21.9" height="15.0" fill="rgb(251,211,50)" rx="2" ry="2" />
+<text  x="1083.74" y="527.5" >c..</text>
+</g>
+<g >
+<title>tcp_data_ready (5,025,125 samples, 1.85%)</title><rect x="512.6" y="149" width="21.8" height="15.0" fill="rgb(232,124,29)" rx="2" ry="2" />
+<text  x="515.59" y="159.5" >t..</text>
+</g>
+<g >
+<title>std::collections::hash::map::HashMap&lt;K,V,S&gt;::get (5,025,125 samples, 1.85%)</title><rect x="884.1" y="773" width="21.8" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="887.07" y="783.5" >s..</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::try_with (40,201,000 samples, 14.81%)</title><rect x="643.7" y="965" width="174.8" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="646.70" y="975.5" >std::thread::local::Lo..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::insert (15,075,375 samples, 5.56%)</title><rect x="753.0" y="901" width="65.5" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="755.96" y="911.5" >hashbro..</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTable&lt;T,A&gt;::find (5,025,125 samples, 1.85%)</title><rect x="949.6" y="821" width="21.9" height="15.0" fill="rgb(248,200,47)" rx="2" ry="2" />
+<text  x="952.63" y="831.5" >h..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::get (5,025,125 samples, 1.85%)</title><rect x="884.1" y="757" width="21.8" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="887.07" y="767.5" >h..</text>
+</g>
+<g >
+<title>std::panicking::catch_unwind::do_call (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1269" width="1158.1" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="34.85" y="1279.5" >std::panicking::catch_unwind::do_call</text>
+</g>
+<g >
+<title>all (271,356,750 samples, 100%)</title><rect x="10.0" y="1493" width="1180.0" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="13.00" y="1503.5" ></text>
+</g>
+<g >
+<title>iouring_bench::executor::schedule_completion::_$u7b$$u7b$closure$u7d$$u7d$::h483ced850fdfa1f0 (5,025,125 samples, 1.85%)</title><rect x="927.8" y="805" width="21.8" height="15.0" fill="rgb(217,57,13)" rx="2" ry="2" />
+<text  x="930.78" y="815.5" >i..</text>
+</g>
+<g >
+<title>hashbrown::control::group::neon::Group::load (5,025,125 samples, 1.85%)</title><rect x="1080.7" y="597" width="21.9" height="15.0" fill="rgb(252,218,52)" rx="2" ry="2" />
+<text  x="1083.74" y="607.5" >h..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::remove_entry (5,025,125 samples, 1.85%)</title><rect x="1080.7" y="661" width="21.9" height="15.0" fill="rgb(222,80,19)" rx="2" ry="2" />
+<text  x="1083.74" y="671.5" >h..</text>
+</g>
+<g >
+<title>handle_softirqs (25,125,625 samples, 9.26%)</title><rect x="184.8" y="309" width="109.3" height="15.0" fill="rgb(238,156,37)" rx="2" ry="2" />
+<text  x="187.81" y="319.5" >handle_softirqs</text>
+</g>
+<g >
+<title>process_backlog (30,150,750 samples, 11.11%)</title><rect x="403.3" y="341" width="131.1" height="15.0" fill="rgb(224,90,21)" rx="2" ry="2" />
+<text  x="406.33" y="351.5" >process_backlog</text>
+</g>
+<g >
+<title>ip_queue_xmit (40,201,000 samples, 14.81%)</title><rect x="381.5" y="613" width="174.8" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="384.48" y="623.5" >ip_queue_xmit</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::with (5,025,125 samples, 1.85%)</title><rect x="862.2" y="805" width="21.9" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="865.22" y="815.5" >s..</text>
+</g>
+<g >
+<title>__local_bh_enable_ip (30,150,750 samples, 11.11%)</title><rect x="403.3" y="485" width="131.1" height="15.0" fill="rgb(237,147,35)" rx="2" ry="2" />
+<text  x="406.33" y="495.5" >__local_bh_enabl..</text>
+</g>
+<g >
+<title>core::mem::transmute_copy (5,025,125 samples, 1.85%)</title><rect x="75.6" y="965" width="21.8" height="15.0" fill="rgb(205,3,0)" rx="2" ry="2" />
+<text  x="78.56" y="975.5" >c..</text>
+</g>
+<g >
+<title>&lt;std::hash::random::DefaultHasher as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="1168.1" y="837" width="21.9" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="1171.15" y="847.5" >&lt;..</text>
+</g>
+<g >
+<title>alloc::fmt::format (5,025,125 samples, 1.85%)</title><rect x="905.9" y="869" width="21.9" height="15.0" fill="rgb(231,121,29)" rx="2" ry="2" />
+<text  x="908.93" y="879.5" >a..</text>
+</g>
+<g >
+<title>std::collections::hash::map::HashMap&lt;K,V,S&gt;::remove (5,025,125 samples, 1.85%)</title><rect x="1080.7" y="693" width="21.9" height="15.0" fill="rgb(207,12,2)" rx="2" ry="2" />
+<text  x="1083.74" y="703.5" >s..</text>
+</g>
+<g >
+<title>arch_counter_get_cntvct (5,025,125 samples, 1.85%)</title><rect x="272.2" y="53" width="21.9" height="15.0" fill="rgb(219,64,15)" rx="2" ry="2" />
+<text  x="275.22" y="63.5" >a..</text>
+</g>
+<g >
+<title>el0t_64_sync_handler (115,577,875 samples, 42.59%)</title><rect x="141.1" y="917" width="502.6" height="15.0" fill="rgb(211,32,7)" rx="2" ry="2" />
+<text  x="144.11" y="927.5" >el0t_64_sync_handler</text>
+</g>
+<g >
+<title>[libc.so.6] (5,025,125 samples, 1.85%)</title><rect x="774.8" y="821" width="21.9" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="777.81" y="831.5" >[..</text>
+</g>
+<g >
+<title>hashbrown::control::group::neon::Group::load (5,025,125 samples, 1.85%)</title><rect x="687.4" y="821" width="21.9" height="15.0" fill="rgb(252,218,52)" rx="2" ry="2" />
+<text  x="690.41" y="831.5" >h..</text>
+</g>
+<g >
+<title>ip_finish_output2 (35,175,875 samples, 12.96%)</title><rect x="381.5" y="533" width="152.9" height="15.0" fill="rgb(219,67,16)" rx="2" ry="2" />
+<text  x="384.48" y="543.5" >ip_finish_output2</text>
+</g>
+<g >
+<title>_start (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1461" width="1158.1" height="15.0" fill="rgb(245,185,44)" rx="2" ry="2" />
+<text  x="34.85" y="1471.5" >_start</text>
+</g>
+<g >
+<title>&lt;iouring_bench::timeout::TimeoutFuture as core::future::future::Future&gt;::poll (5,025,125 samples, 1.85%)</title><rect x="884.1" y="869" width="21.8" height="15.0" fill="rgb(224,89,21)" rx="2" ry="2" />
+<text  x="887.07" y="879.5" >&lt;..</text>
+</g>
+<g >
+<title>hashbrown::map::make_hash (5,025,125 samples, 1.85%)</title><rect x="1037.0" y="645" width="21.9" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="1040.04" y="655.5" >h..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::get (5,025,125 samples, 1.85%)</title><rect x="731.1" y="901" width="21.9" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="734.11" y="911.5" >h..</text>
+</g>
+<g >
+<title>ip_rcv_finish (30,150,750 samples, 11.11%)</title><rect x="403.3" y="277" width="131.1" height="15.0" fill="rgb(205,1,0)" rx="2" ry="2" />
+<text  x="406.33" y="287.5" >ip_rcv_finish</text>
+</g>
+<g >
+<title>tcp_cleanup_rbuf (30,150,750 samples, 11.11%)</title><rect x="163.0" y="613" width="131.1" height="15.0" fill="rgb(233,130,31)" rx="2" ry="2" />
+<text  x="165.96" y="623.5" >tcp_cleanup_rbuf</text>
+</g>
+<g >
+<title>std::rt::lang_start (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1397" width="1158.1" height="15.0" fill="rgb(222,79,19)" rx="2" ry="2" />
+<text  x="34.85" y="1407.5" >std::rt::lang_start</text>
+</g>
+<g >
+<title>do_softirq_own_stack (30,150,750 samples, 11.11%)</title><rect x="403.3" y="453" width="131.1" height="15.0" fill="rgb(250,209,50)" rx="2" ry="2" />
+<text  x="406.33" y="463.5" >do_softirq_own_s..</text>
+</g>
+<g >
+<title>core::ptr::copy_nonoverlapping::precondition_check (5,025,125 samples, 1.85%)</title><rect x="1080.7" y="533" width="21.9" height="15.0" fill="rgb(236,143,34)" rx="2" ry="2" />
+<text  x="1083.74" y="543.5" >c..</text>
+</g>
+<g >
+<title>core::num::&lt;impl u64&gt;::rotate_left (5,025,125 samples, 1.85%)</title><rect x="1168.1" y="773" width="21.9" height="15.0" fill="rgb(207,10,2)" rx="2" ry="2" />
+<text  x="1171.15" y="783.5" >c..</text>
+</g>
+<g >
+<title>process_backlog (25,125,625 samples, 9.26%)</title><rect x="184.8" y="261" width="109.3" height="15.0" fill="rgb(224,90,21)" rx="2" ry="2" />
+<text  x="187.81" y="271.5" >process_backlog</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::try_with (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1141" width="1158.1" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="34.85" y="1151.5" >std::thread::local::LocalKey&lt;T&gt;::try_with</text>
+</g>
+<g >
+<title>__mod_timer (5,025,125 samples, 1.85%)</title><rect x="490.7" y="117" width="21.9" height="15.0" fill="rgb(234,136,32)" rx="2" ry="2" />
+<text  x="493.74" y="127.5" >_..</text>
+</g>
+<g >
+<title>tcp_recvmsg (5,025,125 samples, 1.85%)</title><rect x="337.8" y="725" width="21.8" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="340.78" y="735.5" >t..</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::Sip13Rounds as core::hash::sip::Sip&gt;::d_rounds (5,025,125 samples, 1.85%)</title><rect x="1058.9" y="565" width="21.8" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="1061.89" y="575.5" >&lt;..</text>
+</g>
+<g >
+<title>iouring_bench::executor::get_result (5,025,125 samples, 1.85%)</title><rect x="884.1" y="853" width="21.8" height="15.0" fill="rgb(208,14,3)" rx="2" ry="2" />
+<text  x="887.07" y="863.5" >i..</text>
+</g>
+<g >
+<title>tcp_rcv_established (20,100,500 samples, 7.41%)</title><rect x="206.7" y="101" width="87.4" height="15.0" fill="rgb(242,170,40)" rx="2" ry="2" />
+<text  x="209.67" y="111.5" >tcp_rcv_es..</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTableInner::find_inner (5,025,125 samples, 1.85%)</title><rect x="884.1" y="693" width="21.8" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="887.07" y="703.5" >h..</text>
+</g>
+<g >
+<title>[[vdso]] (5,025,125 samples, 1.85%)</title><rect x="10.0" y="1445" width="21.9" height="15.0" fill="rgb(218,60,14)" rx="2" ry="2" />
+<text  x="13.00" y="1455.5" >[..</text>
+</g>
+<g >
+<title>core::core_arch::aarch64::neon::generated::vld1_u8 (5,025,125 samples, 1.85%)</title><rect x="949.6" y="773" width="21.9" height="15.0" fill="rgb(216,50,12)" rx="2" ry="2" />
+<text  x="952.63" y="783.5" >c..</text>
+</g>
+<g >
+<title>__tcp_ack_snd_check (5,025,125 samples, 1.85%)</title><rect x="490.7" y="165" width="21.9" height="15.0" fill="rgb(231,121,29)" rx="2" ry="2" />
+<text  x="493.74" y="175.5" >_..</text>
+</g>
+<g >
+<title>core::ptr::copy_nonoverlapping (5,025,125 samples, 1.85%)</title><rect x="796.7" y="757" width="21.8" height="15.0" fill="rgb(252,219,52)" rx="2" ry="2" />
+<text  x="799.67" y="767.5" >c..</text>
+</g>
+<g >
+<title>iouring_bench::uring::run::_$u7b$$u7b$closure$u7d$$u7d$::h6ef31b5278537399 (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1045" width="1158.1" height="15.0" fill="rgb(248,202,48)" rx="2" ry="2" />
+<text  x="34.85" y="1055.5" >iouring_bench::uring::run::_$u7b$$u7b$closure$u7d$$u7d$::h6ef31b5278537399</text>
+</g>
+<g >
+<title>pubsub_client_a (271,356,750 samples, 100.00%)</title><rect x="10.0" y="1477" width="1180.0" height="15.0" fill="rgb(237,149,35)" rx="2" ry="2" />
+<text  x="13.00" y="1487.5" >pubsub_client_a</text>
+</g>
+<g >
+<title>sk_reset_timer (5,025,125 samples, 1.85%)</title><rect x="490.7" y="133" width="21.9" height="15.0" fill="rgb(247,197,47)" rx="2" ry="2" />
+<text  x="493.74" y="143.5" >s..</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::Hasher&lt;S&gt; as core::hash::Hasher&gt;::write (5,025,125 samples, 1.85%)</title><rect x="796.7" y="773" width="21.8" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="799.67" y="783.5" >&lt;..</text>
+</g>
+<g >
+<title>ip_queue_xmit (25,125,625 samples, 9.26%)</title><rect x="184.8" y="533" width="109.3" height="15.0" fill="rgb(230,119,28)" rx="2" ry="2" />
+<text  x="187.81" y="543.5" >ip_queue_xmit</text>
+</g>
+<g >
+<title>ip_rcv (30,150,750 samples, 11.11%)</title><rect x="403.3" y="293" width="131.1" height="15.0" fill="rgb(209,22,5)" rx="2" ry="2" />
+<text  x="406.33" y="303.5" >ip_rcv</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTableInner::find_insert_slot_in_group (5,025,125 samples, 1.85%)</title><rect x="1124.4" y="613" width="21.9" height="15.0" fill="rgb(233,129,30)" rx="2" ry="2" />
+<text  x="1127.44" y="623.5" >h..</text>
+</g>
+<g >
+<title>pubsub_client_async::main::_$u7b$$u7b$closure$u7d$$u7d$::hf570e5c3d7c05b21 (45,226,125 samples, 16.67%)</title><rect x="971.5" y="901" width="196.6" height="15.0" fill="rgb(208,16,4)" rx="2" ry="2" />
+<text  x="974.48" y="911.5" >pubsub_client_async::main..</text>
+</g>
+<g >
+<title>std::collections::hash::map::HashMap&lt;K,V,S&gt;::insert (5,025,125 samples, 1.85%)</title><rect x="927.8" y="773" width="21.8" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="930.78" y="783.5" >s..</text>
+</g>
+<g >
+<title>&lt;&amp;mut T as futures_io::if_std::AsyncWrite&gt;::poll_write (10,050,250 samples, 3.70%)</title><rect x="840.4" y="853" width="43.7" height="15.0" fill="rgb(232,127,30)" rx="2" ry="2" />
+<text  x="843.37" y="863.5" >&lt;&amp;mu..</text>
+</g>
+<g >
+<title>ip_local_deliver (30,150,750 samples, 11.11%)</title><rect x="403.3" y="261" width="131.1" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="406.33" y="271.5" >ip_local_deliver</text>
+</g>
+<g >
+<title>core::core_arch::arm_shared::neon::generated::vreinterpret_u64_u8 (5,025,125 samples, 1.85%)</title><rect x="709.3" y="805" width="21.8" height="15.0" fill="rgb(222,82,19)" rx="2" ry="2" />
+<text  x="712.26" y="815.5" >c..</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::SipHasher13 as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="1168.1" y="821" width="21.9" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="1171.15" y="831.5" >&lt;..</text>
+</g>
+<g >
+<title>core::hash::BuildHasher::hash_one (5,025,125 samples, 1.85%)</title><rect x="1037.0" y="629" width="21.9" height="15.0" fill="rgb(250,209,50)" rx="2" ry="2" />
+<text  x="1040.04" y="639.5" >c..</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTableInner::find_inner (5,025,125 samples, 1.85%)</title><rect x="949.6" y="805" width="21.9" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="952.63" y="815.5" >h..</text>
+</g>
+<g >
+<title>__netif_receive_skb (30,150,750 samples, 11.11%)</title><rect x="403.3" y="325" width="131.1" height="15.0" fill="rgb(218,60,14)" rx="2" ry="2" />
+<text  x="406.33" y="335.5" >__netif_receive_..</text>
+</g>
+<g >
+<title>io_uring::sys::io_uring_enter (125,628,125 samples, 46.30%)</title><rect x="97.4" y="965" width="546.3" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="100.41" y="975.5" >io_uring::sys::io_uring_enter</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::with (5,025,125 samples, 1.85%)</title><rect x="1124.4" y="757" width="21.9" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="1127.44" y="767.5" >s..</text>
+</g>
+<g >
+<title>__io_arm_poll_handler (5,025,125 samples, 1.85%)</title><rect x="600.0" y="757" width="21.9" height="15.0" fill="rgb(205,0,0)" rx="2" ry="2" />
+<text  x="603.00" y="767.5" >_..</text>
+</g>
+<g >
+<title>____do_softirq (25,125,625 samples, 9.26%)</title><rect x="184.8" y="341" width="109.3" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="187.81" y="351.5" >____do_softirq</text>
+</g>
+<g >
+<title>tcp_sendmsg_locked (50,251,250 samples, 18.52%)</title><rect x="359.6" y="693" width="218.5" height="15.0" fill="rgb(215,48,11)" rx="2" ry="2" />
+<text  x="362.63" y="703.5" >tcp_sendmsg_locked</text>
+</g>
+<g >
+<title>core::ub_checks::maybe_is_nonoverlapping (5,025,125 samples, 1.85%)</title><rect x="927.8" y="613" width="21.8" height="15.0" fill="rgb(251,211,50)" rx="2" ry="2" />
+<text  x="930.78" y="623.5" >c..</text>
+</g>
+<g >
+<title>tctx_task_work (40,201,000 samples, 14.81%)</title><rect x="141.1" y="757" width="174.8" height="15.0" fill="rgb(249,203,48)" rx="2" ry="2" />
+<text  x="144.11" y="767.5" >tctx_task_work</text>
+</g>
+<g >
+<title>&lt;std::hash::random::RandomState as core::hash::BuildHasher&gt;::build_hasher (5,025,125 samples, 1.85%)</title><rect x="774.8" y="853" width="21.9" height="15.0" fill="rgb(221,76,18)" rx="2" ry="2" />
+<text  x="777.81" y="863.5" >&lt;..</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::Sip13Rounds as core::hash::sip::Sip&gt;::d_rounds (5,025,125 samples, 1.85%)</title><rect x="1037.0" y="565" width="21.9" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="1040.04" y="575.5" >&lt;..</text>
+</g>
+<g >
+<title>call_on_irq_stack (25,125,625 samples, 9.26%)</title><rect x="184.8" y="357" width="109.3" height="15.0" fill="rgb(239,156,37)" rx="2" ry="2" />
+<text  x="187.81" y="367.5" >call_on_irq_s..</text>
+</g>
+<g >
+<title>__netif_receive_skb_one_core (20,100,500 samples, 7.41%)</title><rect x="206.7" y="229" width="87.4" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="209.67" y="239.5" >__netif_re..</text>
+</g>
+<g >
+<title>io_issue_sqe (40,201,000 samples, 14.81%)</title><rect x="141.1" y="709" width="174.8" height="15.0" fill="rgb(243,175,42)" rx="2" ry="2" />
+<text  x="144.11" y="719.5" >io_issue_sqe</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::with (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1077" width="1158.1" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="34.85" y="1087.5" >std::thread::local::LocalKey&lt;T&gt;::with</text>
+</g>
+<g >
+<title>sock_def_readable (5,025,125 samples, 1.85%)</title><rect x="512.6" y="133" width="21.8" height="15.0" fill="rgb(216,54,13)" rx="2" ry="2" />
+<text  x="515.59" y="143.5" >s..</text>
+</g>
+<g >
+<title>std::panicking::catch_unwind::do_call (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1333" width="1158.1" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="34.85" y="1343.5" >std::panicking::catch_unwind::do_call</text>
+</g>
+<g >
+<title>&lt;std::hash::random::DefaultHasher as core::hash::Hasher&gt;::write (5,025,125 samples, 1.85%)</title><rect x="796.7" y="805" width="21.8" height="15.0" fill="rgb(239,159,38)" rx="2" ry="2" />
+<text  x="799.67" y="815.5" >&lt;..</text>
+</g>
+<g >
+<title>tcp_send_ack (30,150,750 samples, 11.11%)</title><rect x="163.0" y="581" width="131.1" height="15.0" fill="rgb(214,43,10)" rx="2" ry="2" />
+<text  x="165.96" y="591.5" >tcp_send_ack</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::Hasher&lt;S&gt; as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="1058.9" y="581" width="21.8" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="1061.89" y="591.5" >&lt;..</text>
+</g>
+<g >
+<title>__wake_up_sync_key (5,025,125 samples, 1.85%)</title><rect x="512.6" y="117" width="21.8" height="15.0" fill="rgb(226,100,24)" rx="2" ry="2" />
+<text  x="515.59" y="127.5" >_..</text>
+</g>
+<g >
+<title>&lt;alloc::vec::Vec&lt;T,A&gt; as core::ops::deref::Deref&gt;::deref (5,025,125 samples, 1.85%)</title><rect x="818.5" y="917" width="21.9" height="15.0" fill="rgb(220,71,16)" rx="2" ry="2" />
+<text  x="821.52" y="927.5" >&lt;..</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTable&lt;T,A&gt;::find_or_find_insert_slot (5,025,125 samples, 1.85%)</title><rect x="927.8" y="725" width="21.8" height="15.0" fill="rgb(219,67,16)" rx="2" ry="2" />
+<text  x="930.78" y="735.5" >h..</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::SipHasher13 as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="731.1" y="821" width="21.9" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="734.11" y="831.5" >&lt;..</text>
+</g>
+<g >
+<title>core::hash::Hasher::write_u64 (5,025,125 samples, 1.85%)</title><rect x="796.7" y="821" width="21.8" height="15.0" fill="rgb(222,78,18)" rx="2" ry="2" />
+<text  x="799.67" y="831.5" >c..</text>
+</g>
+<g >
+<title>iouring_bench::uring::submit (5,025,125 samples, 1.85%)</title><rect x="862.2" y="821" width="21.9" height="15.0" fill="rgb(241,169,40)" rx="2" ry="2" />
+<text  x="865.22" y="831.5" >i..</text>
+</g>
+<g >
+<title>__tcp_transmit_skb (40,201,000 samples, 14.81%)</title><rect x="381.5" y="629" width="174.8" height="15.0" fill="rgb(231,122,29)" rx="2" ry="2" />
+<text  x="384.48" y="639.5" >__tcp_transmit_skb</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::find_or_find_insert_slot (5,025,125 samples, 1.85%)</title><rect x="1124.4" y="661" width="21.9" height="15.0" fill="rgb(218,62,15)" rx="2" ry="2" />
+<text  x="1127.44" y="671.5" >h..</text>
+</g>
+<g >
+<title>tcp_v4_rcv (20,100,500 samples, 7.41%)</title><rect x="206.7" y="133" width="87.4" height="15.0" fill="rgb(237,148,35)" rx="2" ry="2" />
+<text  x="209.67" y="143.5" >tcp_v4_rcv</text>
+</g>
+<g >
+<title>core::ptr::read_unaligned (5,025,125 samples, 1.85%)</title><rect x="1080.7" y="565" width="21.9" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="1083.74" y="575.5" >c..</text>
+</g>
+<g >
+<title>[libc.so.6] (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1429" width="1158.1" height="15.0" fill="rgb(223,84,20)" rx="2" ry="2" />
+<text  x="34.85" y="1439.5" >[libc.so.6]</text>
+</g>
+<g >
+<title>core::slice::index::&lt;impl core::ops::index::Index&lt;I&gt; for [T]&gt;::index (5,025,125 samples, 1.85%)</title><rect x="1146.3" y="821" width="21.8" height="15.0" fill="rgb(224,89,21)" rx="2" ry="2" />
+<text  x="1149.30" y="831.5" >c..</text>
+</g>
+<g >
+<title>ip_rcv_finish (20,100,500 samples, 7.41%)</title><rect x="206.7" y="197" width="87.4" height="15.0" fill="rgb(205,1,0)" rx="2" ry="2" />
+<text  x="209.67" y="207.5" >ip_rcv_fin..</text>
+</g>
+<g >
+<title>iouring_bench::executor::ExecutorInner::run (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1109" width="1158.1" height="15.0" fill="rgb(218,61,14)" rx="2" ry="2" />
+<text  x="34.85" y="1119.5" >iouring_bench::executor::ExecutorInner::run</text>
+</g>
+<g >
+<title>__do_sys_io_uring_enter (115,577,875 samples, 42.59%)</title><rect x="141.1" y="821" width="502.6" height="15.0" fill="rgb(207,13,3)" rx="2" ry="2" />
+<text  x="144.11" y="831.5" >__do_sys_io_uring_enter</text>
+</g>
+<g >
+<title>iouring_bench::uring::Uring::run (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1029" width="1158.1" height="15.0" fill="rgb(213,39,9)" rx="2" ry="2" />
+<text  x="34.85" y="1039.5" >iouring_bench::uring::Uring::run</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTable&lt;T,A&gt;::get (5,025,125 samples, 1.85%)</title><rect x="884.1" y="725" width="21.8" height="15.0" fill="rgb(225,93,22)" rx="2" ry="2" />
+<text  x="887.07" y="735.5" >h..</text>
+</g>
+<g >
+<title>io_queue_async (5,025,125 samples, 1.85%)</title><rect x="600.0" y="789" width="21.9" height="15.0" fill="rgb(243,175,41)" rx="2" ry="2" />
+<text  x="603.00" y="799.5" >i..</text>
+</g>
+<g >
+<title>io_uring::IoUring&lt;S,C&gt;::submit_and_wait (125,628,125 samples, 46.30%)</title><rect x="97.4" y="1013" width="546.3" height="15.0" fill="rgb(242,172,41)" rx="2" ry="2" />
+<text  x="100.41" y="1023.5" >io_uring::IoUring&lt;S,C&gt;::submit_and_wait</text>
+</g>
+<g >
+<title>io_poll_task_func (40,201,000 samples, 14.81%)</title><rect x="141.1" y="741" width="174.8" height="15.0" fill="rgb(216,52,12)" rx="2" ry="2" />
+<text  x="144.11" y="751.5" >io_poll_task_func</text>
+</g>
+<g >
+<title>core::ptr::read_unaligned (5,025,125 samples, 1.85%)</title><rect x="927.8" y="661" width="21.8" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="930.78" y="671.5" >c..</text>
+</g>
+<g >
+<title>iouring_bench::executor::get_result::_$u7b$$u7b$closure$u7d$$u7d$::h3feba4613e813bb4 (15,075,375 samples, 5.56%)</title><rect x="1037.0" y="725" width="65.6" height="15.0" fill="rgb(225,95,22)" rx="2" ry="2" />
+<text  x="1040.04" y="735.5" >iouring..</text>
+</g>
+<g >
+<title>tcp_event_new_data_sent (5,025,125 samples, 1.85%)</title><rect x="556.3" y="629" width="21.8" height="15.0" fill="rgb(233,132,31)" rx="2" ry="2" />
+<text  x="559.30" y="639.5" >t..</text>
+</g>
+<g >
+<title>core::ptr::copy_nonoverlapping (5,025,125 samples, 1.85%)</title><rect x="927.8" y="645" width="21.8" height="15.0" fill="rgb(252,219,52)" rx="2" ry="2" />
+<text  x="930.78" y="655.5" >c..</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::with (85,427,125 samples, 31.48%)</title><rect x="818.5" y="981" width="371.5" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="821.52" y="991.5" >std::thread::local::LocalKey&lt;T&gt;::with</text>
+</g>
+<g >
+<title>&lt;core::pin::Pin&lt;P&gt; as core::future::future::Future&gt;::poll (75,376,875 samples, 27.78%)</title><rect x="840.4" y="917" width="327.7" height="15.0" fill="rgb(227,102,24)" rx="2" ry="2" />
+<text  x="843.37" y="927.5" >&lt;core::pin::Pin&lt;P&gt; as core::future::future::..</text>
+</g>
+<g >
+<title>pubsub_client_async::Stats::write (5,025,125 samples, 1.85%)</title><rect x="949.6" y="869" width="21.9" height="15.0" fill="rgb(224,90,21)" rx="2" ry="2" />
+<text  x="952.63" y="879.5" >p..</text>
+</g>
+<g >
+<title>core::hash::BuildHasher::hash_one (15,075,375 samples, 5.56%)</title><rect x="753.0" y="869" width="65.5" height="15.0" fill="rgb(250,209,50)" rx="2" ry="2" />
+<text  x="755.96" y="879.5" >core::h..</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTable&lt;T,A&gt;::find (5,025,125 samples, 1.85%)</title><rect x="1080.7" y="629" width="21.9" height="15.0" fill="rgb(248,200,47)" rx="2" ry="2" />
+<text  x="1083.74" y="639.5" >h..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::get_inner (5,025,125 samples, 1.85%)</title><rect x="1037.0" y="661" width="21.9" height="15.0" fill="rgb(222,79,18)" rx="2" ry="2" />
+<text  x="1040.04" y="671.5" >h..</text>
+</g>
+<g >
+<title>iouring_bench::executor::handle_completion::_$u7b$$u7b$closure$u7d$$u7d$::h6c594dc35ddb954f (40,201,000 samples, 14.81%)</title><rect x="643.7" y="949" width="174.8" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="646.70" y="959.5" >iouring_bench::executo..</text>
+</g>
+<g >
+<title>io_issue_sqe (60,301,500 samples, 22.22%)</title><rect x="337.8" y="789" width="262.2" height="15.0" fill="rgb(243,175,42)" rx="2" ry="2" />
+<text  x="340.78" y="799.5" >io_issue_sqe</text>
+</g>
+<g >
+<title>core::core_arch::aarch64::neon::generated::vld1_u8 (5,025,125 samples, 1.85%)</title><rect x="927.8" y="677" width="21.8" height="15.0" fill="rgb(216,50,12)" rx="2" ry="2" />
+<text  x="930.78" y="687.5" >c..</text>
+</g>
+<g >
+<title>core::ptr::copy_nonoverlapping (5,025,125 samples, 1.85%)</title><rect x="1080.7" y="549" width="21.9" height="15.0" fill="rgb(252,219,52)" rx="2" ry="2" />
+<text  x="1083.74" y="559.5" >c..</text>
+</g>
+<g >
+<title>io_recv (5,025,125 samples, 1.85%)</title><rect x="337.8" y="773" width="21.8" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="340.78" y="783.5" >i..</text>
+</g>
+<g >
+<title>iouring_bench::executor::handle_ready_queue (85,427,125 samples, 31.48%)</title><rect x="818.5" y="997" width="371.5" height="15.0" fill="rgb(251,214,51)" rx="2" ry="2" />
+<text  x="821.52" y="1007.5" >iouring_bench::executor::handle_ready_queue</text>
+</g>
+<g >
+<title>sock_recvmsg (35,175,875 samples, 12.96%)</title><rect x="141.1" y="677" width="153.0" height="15.0" fill="rgb(206,5,1)" rx="2" ry="2" />
+<text  x="144.11" y="687.5" >sock_recvmsg</text>
+</g>
+<g >
+<title>__do_softirq (30,150,750 samples, 11.11%)</title><rect x="403.3" y="405" width="131.1" height="15.0" fill="rgb(246,191,45)" rx="2" ry="2" />
+<text  x="406.33" y="415.5" >__do_softirq</text>
+</g>
+<g >
+<title>memset (5,025,125 samples, 1.85%)</title><rect x="621.9" y="805" width="21.8" height="15.0" fill="rgb(208,14,3)" rx="2" ry="2" />
+<text  x="624.85" y="815.5" >m..</text>
+</g>
+<g >
+<title>__ip_queue_xmit (40,201,000 samples, 14.81%)</title><rect x="381.5" y="597" width="174.8" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="384.48" y="607.5" >__ip_queue_xmit</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTableInner::find_or_find_insert_slot_inner (5,025,125 samples, 1.85%)</title><rect x="927.8" y="709" width="21.8" height="15.0" fill="rgb(220,73,17)" rx="2" ry="2" />
+<text  x="930.78" y="719.5" >h..</text>
+</g>
+<g >
+<title>iouring_bench::executor::ExecutorInner::run::_$u7b$$u7b$closure$u7d$$u7d$::h84fa24920b624cfe (85,427,125 samples, 31.48%)</title><rect x="818.5" y="1013" width="371.5" height="15.0" fill="rgb(244,180,43)" rx="2" ry="2" />
+<text  x="821.52" y="1023.5" >iouring_bench::executor::ExecutorInner::run::_$u7b..</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTable&lt;T,A&gt;::get (15,075,375 samples, 5.56%)</title><rect x="665.6" y="869" width="65.5" height="15.0" fill="rgb(225,93,22)" rx="2" ry="2" />
+<text  x="668.56" y="879.5" >hashbro..</text>
+</g>
+<g >
+<title>&lt;std::hash::random::DefaultHasher as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="731.1" y="837" width="21.9" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="734.11" y="847.5" >&lt;..</text>
+</g>
+<g >
+<title>io_cqring_wait (40,201,000 samples, 14.81%)</title><rect x="141.1" y="805" width="174.8" height="15.0" fill="rgb(207,12,2)" rx="2" ry="2" />
+<text  x="144.11" y="815.5" >io_cqring_wait</text>
+</g>
+<g >
+<title>&lt;iouring_bench::net::TcpStream as futures_io::if_std::AsyncWrite&gt;::poll_write (10,050,250 samples, 3.70%)</title><rect x="840.4" y="837" width="43.7" height="15.0" fill="rgb(252,216,51)" rx="2" ry="2" />
+<text  x="843.37" y="847.5" >&lt;iou..</text>
+</g>
+<g >
+<title>__inet_lookup_established (5,025,125 samples, 1.85%)</title><rect x="425.2" y="181" width="21.8" height="15.0" fill="rgb(222,79,19)" rx="2" ry="2" />
+<text  x="428.19" y="191.5" >_..</text>
+</g>
+<g >
+<title>core::core_arch::aarch64::neon::generated::vld1_u8 (5,025,125 samples, 1.85%)</title><rect x="1080.7" y="581" width="21.9" height="15.0" fill="rgb(216,50,12)" rx="2" ry="2" />
+<text  x="1083.74" y="591.5" >c..</text>
+</g>
+<g >
+<title>ip_output (35,175,875 samples, 12.96%)</title><rect x="381.5" y="581" width="152.9" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="384.48" y="591.5" >ip_output</text>
+</g>
+<g >
+<title>hashbrown::map::make_hash (5,025,125 samples, 1.85%)</title><rect x="1058.9" y="645" width="21.8" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="1061.89" y="655.5" >h..</text>
+</g>
+<g >
+<title>&lt;futures_util::io::buf_reader::BufReader&lt;R&gt; as futures_io::if_std::AsyncBufRead&gt;::poll_fill_buf (30,150,750 samples, 11.11%)</title><rect x="1015.2" y="805" width="131.1" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="1018.19" y="815.5" >&lt;futures_util::i..</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTableInner::find_inner (10,050,250 samples, 3.70%)</title><rect x="687.4" y="837" width="43.7" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="690.41" y="847.5" >hash..</text>
+</g>
+<g >
+<title>__napi_poll (25,125,625 samples, 9.26%)</title><rect x="184.8" y="277" width="109.3" height="15.0" fill="rgb(247,195,46)" rx="2" ry="2" />
+<text  x="187.81" y="287.5" >__napi_poll</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::Hasher&lt;S&gt; as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="1037.0" y="581" width="21.9" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="1040.04" y="591.5" >&lt;..</text>
+</g>
+<g >
+<title>core::hash::impls::&lt;impl core::hash::Hash for &amp;T&gt;::hash (5,025,125 samples, 1.85%)</title><rect x="796.7" y="853" width="21.8" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="799.67" y="863.5" >c..</text>
+</g>
+<g >
+<title>__dev_queue_xmit (35,175,875 samples, 12.96%)</title><rect x="381.5" y="501" width="152.9" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="384.48" y="511.5" >__dev_queue_xmit</text>
+</g>
+<g >
+<title>&lt;io_uring::cqueue::Entry as core::clone::Clone&gt;::clone (5,025,125 samples, 1.85%)</title><rect x="75.6" y="981" width="21.8" height="15.0" fill="rgb(239,160,38)" rx="2" ry="2" />
+<text  x="78.56" y="991.5" >&lt;..</text>
+</g>
+<g >
+<title>hashbrown::rustc_entry::&lt;impl hashbrown::map::HashMap&lt;K,V,S,A&gt;&gt;::rustc_entry (5,025,125 samples, 1.85%)</title><rect x="949.6" y="837" width="21.9" height="15.0" fill="rgb(228,110,26)" rx="2" ry="2" />
+<text  x="952.63" y="847.5" >h..</text>
+</g>
+<g >
+<title>core::slice::raw::from_raw_parts::precondition_check (5,025,125 samples, 1.85%)</title><rect x="818.5" y="869" width="21.9" height="15.0" fill="rgb(206,6,1)" rx="2" ry="2" />
+<text  x="821.52" y="879.5" >c..</text>
+</g>
+<g >
+<title>&lt;core::ops::range::RangeInclusive&lt;usize&gt; as core::slice::index::SliceIndex&lt;[T]&gt;&gt;::index (5,025,125 samples, 1.85%)</title><rect x="1146.3" y="789" width="21.8" height="15.0" fill="rgb(214,45,10)" rx="2" ry="2" />
+<text  x="1149.30" y="799.5" >&lt;..</text>
+</g>
+<g >
+<title>do_softirq_own_stack (25,125,625 samples, 9.26%)</title><rect x="184.8" y="373" width="109.3" height="15.0" fill="rgb(250,209,50)" rx="2" ry="2" />
+<text  x="187.81" y="383.5" >do_softirq_ow..</text>
+</g>
+<g >
+<title>hashbrown::control::group::neon::Group::match_empty_or_deleted (5,025,125 samples, 1.85%)</title><rect x="1124.4" y="597" width="21.9" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="1127.44" y="607.5" >h..</text>
+</g>
+<g >
+<title>io_uring::cqueue::CompletionQueue&lt;E&gt;::pop (5,025,125 samples, 1.85%)</title><rect x="75.6" y="997" width="21.8" height="15.0" fill="rgb(253,222,53)" rx="2" ry="2" />
+<text  x="78.56" y="1007.5" >i..</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::try_with (5,025,125 samples, 1.85%)</title><rect x="862.2" y="789" width="21.9" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="865.22" y="799.5" >s..</text>
+</g>
+<g >
+<title>core::core_arch::aarch64::neon::generated::vld1_u8 (5,025,125 samples, 1.85%)</title><rect x="687.4" y="805" width="21.9" height="15.0" fill="rgb(216,50,12)" rx="2" ry="2" />
+<text  x="690.41" y="815.5" >c..</text>
+</g>
+<g >
+<title>io_arm_poll_handler (5,025,125 samples, 1.85%)</title><rect x="600.0" y="773" width="21.9" height="15.0" fill="rgb(232,126,30)" rx="2" ry="2" />
+<text  x="603.00" y="783.5" >i..</text>
+</g>
+<g >
+<title>iouring_bench::executor::run::_$u7b$$u7b$closure$u7d$$u7d$::hd3b31bda3eddf676 (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1125" width="1158.1" height="15.0" fill="rgb(235,142,34)" rx="2" ry="2" />
+<text  x="34.85" y="1135.5" >iouring_bench::executor::run::_$u7b$$u7b$closure$u7d$$u7d$::hd3b31bda3eddf676</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTable&lt;T,A&gt;::find (15,075,375 samples, 5.56%)</title><rect x="665.6" y="853" width="65.5" height="15.0" fill="rgb(248,200,47)" rx="2" ry="2" />
+<text  x="668.56" y="863.5" >hashbro..</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTableInner::find_or_find_insert_slot_inner (5,025,125 samples, 1.85%)</title><rect x="1124.4" y="629" width="21.9" height="15.0" fill="rgb(220,73,17)" rx="2" ry="2" />
+<text  x="1127.44" y="639.5" >h..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::insert (5,025,125 samples, 1.85%)</title><rect x="1124.4" y="677" width="21.9" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="1127.44" y="687.5" >h..</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::with (5,025,125 samples, 1.85%)</title><rect x="884.1" y="837" width="21.8" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="887.07" y="847.5" >s..</text>
+</g>
+<g >
+<title>ktime_get (5,025,125 samples, 1.85%)</title><rect x="272.2" y="69" width="21.9" height="15.0" fill="rgb(207,10,2)" rx="2" ry="2" />
+<text  x="275.22" y="79.5" >k..</text>
+</g>
+<g >
+<title>__ip_queue_xmit (25,125,625 samples, 9.26%)</title><rect x="184.8" y="517" width="109.3" height="15.0" fill="rgb(253,223,53)" rx="2" ry="2" />
+<text  x="187.81" y="527.5" >__ip_queue_xmit</text>
+</g>
+<g >
+<title>iouring_bench::timeout::TimeoutFuture::new (5,025,125 samples, 1.85%)</title><rect x="927.8" y="869" width="21.8" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="930.78" y="879.5" >i..</text>
+</g>
+<g >
+<title>__sock_sendmsg (50,251,250 samples, 18.52%)</title><rect x="359.6" y="741" width="218.5" height="15.0" fill="rgb(217,57,13)" rx="2" ry="2" />
+<text  x="362.63" y="751.5" >__sock_sendmsg</text>
+</g>
+<g >
+<title>inet_sendmsg (50,251,250 samples, 18.52%)</title><rect x="359.6" y="725" width="218.5" height="15.0" fill="rgb(244,183,43)" rx="2" ry="2" />
+<text  x="362.63" y="735.5" >inet_sendmsg</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::Sip13Rounds as core::hash::sip::Sip&gt;::d_rounds (5,025,125 samples, 1.85%)</title><rect x="731.1" y="789" width="21.9" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="734.11" y="799.5" >&lt;..</text>
+</g>
+<g >
+<title>__arm64_sys_io_uring_enter (115,577,875 samples, 42.59%)</title><rect x="141.1" y="837" width="502.6" height="15.0" fill="rgb(219,64,15)" rx="2" ry="2" />
+<text  x="144.11" y="847.5" >__arm64_sys_io_uring_enter</text>
+</g>
+<g >
+<title>core::cmp::PartialOrd::le (5,025,125 samples, 1.85%)</title><rect x="840.4" y="821" width="21.8" height="15.0" fill="rgb(228,107,25)" rx="2" ry="2" />
+<text  x="843.37" y="831.5" >c..</text>
+</g>
+<g >
+<title>ip_finish_output (25,125,625 samples, 9.26%)</title><rect x="184.8" y="485" width="109.3" height="15.0" fill="rgb(242,173,41)" rx="2" ry="2" />
+<text  x="187.81" y="495.5" >ip_finish_out..</text>
+</g>
+<g >
+<title>iouring_bench::executor::ExecutorInner::get_result (5,025,125 samples, 1.85%)</title><rect x="884.1" y="789" width="21.8" height="15.0" fill="rgb(205,3,0)" rx="2" ry="2" />
+<text  x="887.07" y="799.5" >i..</text>
+</g>
+<g >
+<title>iouring_bench::executor::ExecutorInner::schedule_completion (5,025,125 samples, 1.85%)</title><rect x="927.8" y="789" width="21.8" height="15.0" fill="rgb(209,19,4)" rx="2" ry="2" />
+<text  x="930.78" y="799.5" >i..</text>
+</g>
+<g >
+<title>std::collections::hash::map::HashMap&lt;K,V,S&gt;::insert (15,075,375 samples, 5.56%)</title><rect x="753.0" y="917" width="65.5" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="755.96" y="927.5" >std::co..</text>
+</g>
+<g >
+<title>core::ptr::copy_nonoverlapping (5,025,125 samples, 1.85%)</title><rect x="687.4" y="773" width="21.9" height="15.0" fill="rgb(252,219,52)" rx="2" ry="2" />
+<text  x="690.41" y="783.5" >c..</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTable&lt;T,A&gt;::find_or_find_insert_slot (5,025,125 samples, 1.85%)</title><rect x="1124.4" y="645" width="21.9" height="15.0" fill="rgb(219,67,16)" rx="2" ry="2" />
+<text  x="1127.44" y="655.5" >h..</text>
+</g>
+<g >
+<title>memset (5,025,125 samples, 1.85%)</title><rect x="250.4" y="85" width="21.8" height="15.0" fill="rgb(208,14,3)" rx="2" ry="2" />
+<text  x="253.37" y="95.5" >m..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::get_inner (20,100,500 samples, 7.41%)</title><rect x="643.7" y="885" width="87.4" height="15.0" fill="rgb(222,79,18)" rx="2" ry="2" />
+<text  x="646.70" y="895.5" >hashbrown:..</text>
+</g>
+<g >
+<title>iouring_bench::executor::ExecutorInner::get_result (15,075,375 samples, 5.56%)</title><rect x="1037.0" y="709" width="65.6" height="15.0" fill="rgb(205,3,0)" rx="2" ry="2" />
+<text  x="1040.04" y="719.5" >iouring..</text>
+</g>
+<g >
+<title>__ip_finish_output (35,175,875 samples, 12.96%)</title><rect x="381.5" y="549" width="152.9" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="384.48" y="559.5" >__ip_finish_output</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTable&lt;T,A&gt;::remove_entry (5,025,125 samples, 1.85%)</title><rect x="1080.7" y="645" width="21.9" height="15.0" fill="rgb(223,85,20)" rx="2" ry="2" />
+<text  x="1083.74" y="655.5" >h..</text>
+</g>
+<g >
+<title>tcp_recvmsg (35,175,875 samples, 12.96%)</title><rect x="141.1" y="645" width="153.0" height="15.0" fill="rgb(234,135,32)" rx="2" ry="2" />
+<text  x="144.11" y="655.5" >tcp_recvmsg</text>
+</g>
+<g >
+<title>core::num::&lt;impl u64&gt;::rotate_left (5,025,125 samples, 1.85%)</title><rect x="1058.9" y="549" width="21.8" height="15.0" fill="rgb(207,10,2)" rx="2" ry="2" />
+<text  x="1061.89" y="559.5" >c..</text>
+</g>
+<g >
+<title>tcp_recvmsg_locked (5,025,125 samples, 1.85%)</title><rect x="337.8" y="709" width="21.8" height="15.0" fill="rgb(226,100,24)" rx="2" ry="2" />
+<text  x="340.78" y="719.5" >t..</text>
+</g>
+<g >
+<title>io_send (50,251,250 samples, 18.52%)</title><rect x="359.6" y="773" width="218.5" height="15.0" fill="rgb(252,218,52)" rx="2" ry="2" />
+<text  x="362.63" y="783.5" >io_send</text>
+</g>
+<g >
+<title>inet_recvmsg (35,175,875 samples, 12.96%)</title><rect x="141.1" y="661" width="153.0" height="15.0" fill="rgb(206,5,1)" rx="2" ry="2" />
+<text  x="144.11" y="671.5" >inet_recvmsg</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::try_with (5,025,125 samples, 1.85%)</title><rect x="1102.6" y="725" width="21.8" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="1105.59" y="735.5" >s..</text>
+</g>
+<g >
+<title>hashbrown::control::group::neon::Group::load (5,025,125 samples, 1.85%)</title><rect x="949.6" y="789" width="21.9" height="15.0" fill="rgb(252,218,52)" rx="2" ry="2" />
+<text  x="952.63" y="799.5" >h..</text>
+</g>
+<g >
+<title>ip_local_deliver (20,100,500 samples, 7.41%)</title><rect x="206.7" y="181" width="87.4" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="209.67" y="191.5" >ip_local_d..</text>
+</g>
+<g >
+<title>std::collections::hash::map::HashMap&lt;K,V,S&gt;::contains_key (20,100,500 samples, 7.41%)</title><rect x="643.7" y="917" width="87.4" height="15.0" fill="rgb(218,62,14)" rx="2" ry="2" />
+<text  x="646.70" y="927.5" >std::colle..</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::SipHasher13 as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="1037.0" y="597" width="21.9" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="1040.04" y="607.5" >&lt;..</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::try_with (5,025,125 samples, 1.85%)</title><rect x="884.1" y="821" width="21.8" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="887.07" y="831.5" >s..</text>
+</g>
+<g >
+<title>__netif_receive_skb_one_core (30,150,750 samples, 11.11%)</title><rect x="403.3" y="309" width="131.1" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="406.33" y="319.5" >__netif_receive_..</text>
+</g>
+<g >
+<title>core::hash::BuildHasher::hash_one (5,025,125 samples, 1.85%)</title><rect x="643.7" y="853" width="21.9" height="15.0" fill="rgb(250,209,50)" rx="2" ry="2" />
+<text  x="646.70" y="863.5" >c..</text>
+</g>
+<g >
+<title>__tcp_send_ack.part.0 (30,150,750 samples, 11.11%)</title><rect x="163.0" y="565" width="131.1" height="15.0" fill="rgb(246,192,46)" rx="2" ry="2" />
+<text  x="165.96" y="575.5" >__tcp_send_ack.p..</text>
+</g>
+<g >
+<title>tcp_mstamp_refresh (5,025,125 samples, 1.85%)</title><rect x="272.2" y="85" width="21.9" height="15.0" fill="rgb(221,77,18)" rx="2" ry="2" />
+<text  x="275.22" y="95.5" >t..</text>
+</g>
+<g >
+<title>ip_finish_output (35,175,875 samples, 12.96%)</title><rect x="381.5" y="565" width="152.9" height="15.0" fill="rgb(242,173,41)" rx="2" ry="2" />
+<text  x="384.48" y="575.5" >ip_finish_output</text>
+</g>
+<g >
+<title>ip_protocol_deliver_rcu (20,100,500 samples, 7.41%)</title><rect x="206.7" y="149" width="87.4" height="15.0" fill="rgb(215,49,11)" rx="2" ry="2" />
+<text  x="209.67" y="159.5" >ip_protoco..</text>
+</g>
+<g >
+<title>&lt;&amp;mut T as futures_io::if_std::AsyncBufRead&gt;::poll_fill_buf (30,150,750 samples, 11.11%)</title><rect x="1015.2" y="821" width="131.1" height="15.0" fill="rgb(206,7,1)" rx="2" ry="2" />
+<text  x="1018.19" y="831.5" >&lt;&amp;mut T as futur..</text>
+</g>
+<g >
+<title>ip_local_deliver_finish (20,100,500 samples, 7.41%)</title><rect x="206.7" y="165" width="87.4" height="15.0" fill="rgb(225,95,22)" rx="2" ry="2" />
+<text  x="209.67" y="175.5" >ip_local_d..</text>
+</g>
+<g >
+<title>core::ub_checks::maybe_is_nonoverlapping::runtime (5,025,125 samples, 1.85%)</title><rect x="949.6" y="693" width="21.9" height="15.0" fill="rgb(214,44,10)" rx="2" ry="2" />
+<text  x="952.63" y="703.5" >c..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::remove (5,025,125 samples, 1.85%)</title><rect x="1080.7" y="677" width="21.9" height="15.0" fill="rgb(216,53,12)" rx="2" ry="2" />
+<text  x="1083.74" y="687.5" >h..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::contains_key (20,100,500 samples, 7.41%)</title><rect x="643.7" y="901" width="87.4" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="646.70" y="911.5" >hashbrown:..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::get_inner (5,025,125 samples, 1.85%)</title><rect x="884.1" y="741" width="21.8" height="15.0" fill="rgb(222,79,18)" rx="2" ry="2" />
+<text  x="887.07" y="751.5" >h..</text>
+</g>
+<g >
+<title>core::hash::BuildHasher::hash_one (5,025,125 samples, 1.85%)</title><rect x="1168.1" y="853" width="21.9" height="15.0" fill="rgb(250,209,50)" rx="2" ry="2" />
+<text  x="1171.15" y="863.5" >c..</text>
+</g>
+<g >
+<title>tcp_v4_do_rcv (20,100,500 samples, 7.41%)</title><rect x="206.7" y="117" width="87.4" height="15.0" fill="rgb(210,26,6)" rx="2" ry="2" />
+<text  x="209.67" y="127.5" >tcp_v4_do_..</text>
+</g>
+<g >
+<title>__dev_queue_xmit (25,125,625 samples, 9.26%)</title><rect x="184.8" y="421" width="109.3" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="187.81" y="431.5" >__dev_queue_x..</text>
+</g>
+<g >
+<title>&lt;io_uring::cqueue::CompletionQueue&lt;E&gt; as core::iter::traits::iterator::Iterator&gt;::next (5,025,125 samples, 1.85%)</title><rect x="75.6" y="1013" width="21.8" height="15.0" fill="rgb(231,121,29)" rx="2" ry="2" />
+<text  x="78.56" y="1023.5" >&lt;..</text>
+</g>
+<g >
+<title>std::rt::lang_start_internal::_$u7b$$u7b$closure$u7d$$u7d$::h1ed7be513f45f3fd (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1317" width="1158.1" height="15.0" fill="rgb(233,129,30)" rx="2" ry="2" />
+<text  x="34.85" y="1327.5" >std::rt::lang_start_internal::_$u7b$$u7b$closure$u7d$$u7d$::h1ed7be513f45f3fd</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::SipHasher13 as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="643.7" y="821" width="21.9" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="646.70" y="831.5" >&lt;..</text>
+</g>
+<g >
+<title>std::panicking::catch_unwind (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1349" width="1158.1" height="15.0" fill="rgb(242,170,40)" rx="2" ry="2" />
+<text  x="34.85" y="1359.5" >std::panicking::catch_unwind</text>
+</g>
+<g >
+<title>alloc::vec::Vec&lt;T,A&gt;::as_slice (5,025,125 samples, 1.85%)</title><rect x="818.5" y="901" width="21.9" height="15.0" fill="rgb(206,6,1)" rx="2" ry="2" />
+<text  x="821.52" y="911.5" >a..</text>
+</g>
+<g >
+<title>iouring_bench::executor::get_result (15,075,375 samples, 5.56%)</title><rect x="1037.0" y="773" width="65.6" height="15.0" fill="rgb(208,14,3)" rx="2" ry="2" />
+<text  x="1040.04" y="783.5" >iouring..</text>
+</g>
+<g >
+<title>el0_svc_common.constprop.0 (115,577,875 samples, 42.59%)</title><rect x="141.1" y="869" width="502.6" height="15.0" fill="rgb(224,89,21)" rx="2" ry="2" />
+<text  x="144.11" y="879.5" >el0_svc_common.constprop.0</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::SipHasher13 as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="1058.9" y="597" width="21.8" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="1061.89" y="607.5" >&lt;..</text>
+</g>
+<g >
+<title>syscall (120,603,000 samples, 44.44%)</title><rect x="119.3" y="949" width="524.4" height="15.0" fill="rgb(234,136,32)" rx="2" ry="2" />
+<text  x="122.26" y="959.5" >syscall</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;core::cell::Cell&lt;T&gt;&gt;::get (5,025,125 samples, 1.85%)</title><rect x="1102.6" y="757" width="21.8" height="15.0" fill="rgb(228,107,25)" rx="2" ry="2" />
+<text  x="1105.59" y="767.5" >s..</text>
+</g>
+<g >
+<title>tcp_sendmsg (50,251,250 samples, 18.52%)</title><rect x="359.6" y="709" width="218.5" height="15.0" fill="rgb(223,83,19)" rx="2" ry="2" />
+<text  x="362.63" y="719.5" >tcp_sendmsg</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::try_with (15,075,375 samples, 5.56%)</title><rect x="1037.0" y="741" width="65.6" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="1040.04" y="751.5" >std::th..</text>
+</g>
+<g >
+<title>__napi_poll (30,150,750 samples, 11.11%)</title><rect x="403.3" y="357" width="131.1" height="15.0" fill="rgb(247,195,46)" rx="2" ry="2" />
+<text  x="406.33" y="367.5" >__napi_poll</text>
+</g>
+<g >
+<title>&lt;std::hash::random::DefaultHasher as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="643.7" y="837" width="21.9" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="646.70" y="847.5" >&lt;..</text>
+</g>
+<g >
+<title>core::ops::function::FnOnce::call_once (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1205" width="1158.1" height="15.0" fill="rgb(246,191,45)" rx="2" ry="2" />
+<text  x="34.85" y="1215.5" >core::ops::function::FnOnce::call_once</text>
+</g>
+<g >
+<title>ip_output (25,125,625 samples, 9.26%)</title><rect x="184.8" y="501" width="109.3" height="15.0" fill="rgb(247,194,46)" rx="2" ry="2" />
+<text  x="187.81" y="511.5" >ip_output</text>
+</g>
+<g >
+<title>io_uring::submit::Submitter::submit_and_wait (125,628,125 samples, 46.30%)</title><rect x="97.4" y="997" width="546.3" height="15.0" fill="rgb(254,227,54)" rx="2" ry="2" />
+<text  x="100.41" y="1007.5" >io_uring::submit::Submitter::submit_and_wait</text>
+</g>
+<g >
+<title>tcp_v4_rcv (30,150,750 samples, 11.11%)</title><rect x="403.3" y="213" width="131.1" height="15.0" fill="rgb(237,148,35)" rx="2" ry="2" />
+<text  x="406.33" y="223.5" >tcp_v4_rcv</text>
+</g>
+<g >
+<title>&lt;core::ops::range::RangeToInclusive&lt;usize&gt; as core::slice::index::SliceIndex&lt;[T]&gt;&gt;::index (5,025,125 samples, 1.85%)</title><rect x="1146.3" y="805" width="21.8" height="15.0" fill="rgb(205,0,0)" rx="2" ry="2" />
+<text  x="1149.30" y="815.5" >&lt;..</text>
+</g>
+<g >
+<title>sock_recvmsg (5,025,125 samples, 1.85%)</title><rect x="337.8" y="757" width="21.8" height="15.0" fill="rgb(206,5,1)" rx="2" ry="2" />
+<text  x="340.78" y="767.5" >s..</text>
+</g>
+<g >
+<title>io_run_task_work (40,201,000 samples, 14.81%)</title><rect x="141.1" y="789" width="174.8" height="15.0" fill="rgb(250,210,50)" rx="2" ry="2" />
+<text  x="144.11" y="799.5" >io_run_task_work</text>
+</g>
+<g >
+<title>std::collections::hash::map::HashMap&lt;K,V,S&gt;::get (5,025,125 samples, 1.85%)</title><rect x="1058.9" y="693" width="21.8" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="1061.89" y="703.5" >s..</text>
+</g>
+<g >
+<title>neigh_hh_output (25,125,625 samples, 9.26%)</title><rect x="184.8" y="437" width="109.3" height="15.0" fill="rgb(213,37,8)" rx="2" ry="2" />
+<text  x="187.81" y="447.5" >neigh_hh_output</text>
+</g>
+<g >
+<title>____do_softirq (30,150,750 samples, 11.11%)</title><rect x="403.3" y="421" width="131.1" height="15.0" fill="rgb(219,65,15)" rx="2" ry="2" />
+<text  x="406.33" y="431.5" >____do_softirq</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::with (5,025,125 samples, 1.85%)</title><rect x="1102.6" y="741" width="21.8" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="1105.59" y="751.5" >s..</text>
+</g>
+<g >
+<title>&lt;futures_util::io::read_line::ReadLine&lt;R&gt; as core::future::future::Future&gt;::poll (35,175,875 samples, 12.96%)</title><rect x="1015.2" y="869" width="152.9" height="15.0" fill="rgb(235,140,33)" rx="2" ry="2" />
+<text  x="1018.19" y="879.5" >&lt;futures_util::io::..</text>
+</g>
+<g >
+<title>core::ptr::copy_nonoverlapping (5,025,125 samples, 1.85%)</title><rect x="949.6" y="741" width="21.9" height="15.0" fill="rgb(252,219,52)" rx="2" ry="2" />
+<text  x="952.63" y="751.5" >c..</text>
+</g>
+<g >
+<title>core::hash::BuildHasher::hash_one (5,025,125 samples, 1.85%)</title><rect x="731.1" y="853" width="21.9" height="15.0" fill="rgb(250,209,50)" rx="2" ry="2" />
+<text  x="734.11" y="863.5" >c..</text>
+</g>
+<g >
+<title>iouring_bench::executor::ExecutorInner::handle_ready_queue (85,427,125 samples, 31.48%)</title><rect x="818.5" y="933" width="371.5" height="15.0" fill="rgb(249,202,48)" rx="2" ry="2" />
+<text  x="821.52" y="943.5" >iouring_bench::executor::ExecutorInner::handle_rea..</text>
+</g>
+<g >
+<title>__kernel_clock_gettime (5,025,125 samples, 1.85%)</title><rect x="10.0" y="1461" width="21.9" height="15.0" fill="rgb(231,122,29)" rx="2" ry="2" />
+<text  x="13.00" y="1471.5" >_..</text>
+</g>
+<g >
+<title>pubsub_client_async::main (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1189" width="1158.1" height="15.0" fill="rgb(243,179,42)" rx="2" ry="2" />
+<text  x="34.85" y="1199.5" >pubsub_client_async::main</text>
+</g>
+<g >
+<title>iouring_bench::executor::run (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1173" width="1158.1" height="15.0" fill="rgb(220,72,17)" rx="2" ry="2" />
+<text  x="34.85" y="1183.5" >iouring_bench::executor::run</text>
+</g>
+<g >
+<title>handle_softirqs (30,150,750 samples, 11.11%)</title><rect x="403.3" y="389" width="131.1" height="15.0" fill="rgb(238,156,37)" rx="2" ry="2" />
+<text  x="406.33" y="399.5" >handle_softirqs</text>
+</g>
+<g >
+<title>iouring_bench::executor::schedule_completion::_$u7b$$u7b$closure$u7d$$u7d$::h483ced850fdfa1f0 (5,025,125 samples, 1.85%)</title><rect x="1124.4" y="725" width="21.9" height="15.0" fill="rgb(217,57,13)" rx="2" ry="2" />
+<text  x="1127.44" y="735.5" >i..</text>
+</g>
+<g >
+<title>do_softirq (25,125,625 samples, 9.26%)</title><rect x="184.8" y="389" width="109.3" height="15.0" fill="rgb(223,87,20)" rx="2" ry="2" />
+<text  x="187.81" y="399.5" >do_softirq</text>
+</g>
+<g >
+<title>alloc::fmt::format::format_inner (5,025,125 samples, 1.85%)</title><rect x="905.9" y="821" width="21.9" height="15.0" fill="rgb(237,150,35)" rx="2" ry="2" />
+<text  x="908.93" y="831.5" >a..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::contains_key (5,025,125 samples, 1.85%)</title><rect x="1037.0" y="677" width="21.9" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="1040.04" y="687.5" >h..</text>
+</g>
+<g >
+<title>core::ptr::copy_nonoverlapping::precondition_check (5,025,125 samples, 1.85%)</title><rect x="927.8" y="629" width="21.8" height="15.0" fill="rgb(236,143,34)" rx="2" ry="2" />
+<text  x="930.78" y="639.5" >c..</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::try_with (85,427,125 samples, 31.48%)</title><rect x="818.5" y="965" width="371.5" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="821.52" y="975.5" >std::thread::local::LocalKey&lt;T&gt;::try_with</text>
+</g>
+<g >
+<title>io_recv (35,175,875 samples, 12.96%)</title><rect x="141.1" y="693" width="153.0" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="144.11" y="703.5" >io_recv</text>
+</g>
+<g >
+<title>iouring_bench::executor::schedule_completion (5,025,125 samples, 1.85%)</title><rect x="927.8" y="853" width="21.8" height="15.0" fill="rgb(211,31,7)" rx="2" ry="2" />
+<text  x="930.78" y="863.5" >i..</text>
+</g>
+<g >
+<title>invoke_syscall (115,577,875 samples, 42.59%)</title><rect x="141.1" y="853" width="502.6" height="15.0" fill="rgb(209,18,4)" rx="2" ry="2" />
+<text  x="144.11" y="863.5" >invoke_syscall</text>
+</g>
+<g >
+<title>hashbrown::map::make_hash (5,025,125 samples, 1.85%)</title><rect x="1168.1" y="869" width="21.9" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="1171.15" y="879.5" >h..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::get_inner (5,025,125 samples, 1.85%)</title><rect x="731.1" y="885" width="21.9" height="15.0" fill="rgb(222,79,18)" rx="2" ry="2" />
+<text  x="734.11" y="895.5" >h..</text>
+</g>
+<g >
+<title>iouring_bench::executor::handle_ready_queue::_$u7b$$u7b$closure$u7d$$u7d$::hc2cf894887ee072f (85,427,125 samples, 31.48%)</title><rect x="818.5" y="949" width="371.5" height="15.0" fill="rgb(254,228,54)" rx="2" ry="2" />
+<text  x="821.52" y="959.5" >iouring_bench::executor::handle_ready_queue::_$u7b..</text>
+</g>
+<g >
+<title>iouring_bench::executor::get_result::_$u7b$$u7b$closure$u7d$$u7d$::h3feba4613e813bb4 (5,025,125 samples, 1.85%)</title><rect x="884.1" y="805" width="21.8" height="15.0" fill="rgb(225,95,22)" rx="2" ry="2" />
+<text  x="887.07" y="815.5" >i..</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::Hasher&lt;S&gt; as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="643.7" y="805" width="21.9" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="646.70" y="815.5" >&lt;..</text>
+</g>
+<g >
+<title>call_on_irq_stack (30,150,750 samples, 11.11%)</title><rect x="403.3" y="437" width="131.1" height="15.0" fill="rgb(239,156,37)" rx="2" ry="2" />
+<text  x="406.33" y="447.5" >call_on_irq_stack</text>
+</g>
+<g >
+<title>std::sys::backtrace::__rust_begin_short_backtrace (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1221" width="1158.1" height="15.0" fill="rgb(210,23,5)" rx="2" ry="2" />
+<text  x="34.85" y="1231.5" >std::sys::backtrace::__rust_begin_short_backtrace</text>
+</g>
+<g >
+<title>__kfree_skb (5,025,125 samples, 1.85%)</title><rect x="228.5" y="85" width="21.9" height="15.0" fill="rgb(213,40,9)" rx="2" ry="2" />
+<text  x="231.52" y="95.5" >_..</text>
+</g>
+<g >
+<title>ip_finish_output2 (25,125,625 samples, 9.26%)</title><rect x="184.8" y="453" width="109.3" height="15.0" fill="rgb(219,67,16)" rx="2" ry="2" />
+<text  x="187.81" y="463.5" >ip_finish_out..</text>
+</g>
+<g >
+<title>core::cmp::PartialOrd::le (5,025,125 samples, 1.85%)</title><rect x="1015.2" y="773" width="21.8" height="15.0" fill="rgb(228,107,25)" rx="2" ry="2" />
+<text  x="1018.19" y="783.5" >c..</text>
+</g>
+<g >
+<title>&lt;std::hash::random::DefaultHasher as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="1037.0" y="613" width="21.9" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="1040.04" y="623.5" >&lt;..</text>
+</g>
+<g >
+<title>tcp_push (45,226,125 samples, 16.67%)</title><rect x="381.5" y="677" width="196.6" height="15.0" fill="rgb(243,176,42)" rx="2" ry="2" />
+<text  x="384.48" y="687.5" >tcp_push</text>
+</g>
+<g >
+<title>std::rt::lang_start_internal (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1381" width="1158.1" height="15.0" fill="rgb(246,191,45)" rx="2" ry="2" />
+<text  x="34.85" y="1391.5" >std::rt::lang_start_internal</text>
+</g>
+<g >
+<title>pubsub_client_async::main::_$u7b$$u7b$closure$u7d$$u7d$::h36b72f36b62afdc7 (30,150,750 samples, 11.11%)</title><rect x="840.4" y="901" width="131.1" height="15.0" fill="rgb(246,192,46)" rx="2" ry="2" />
+<text  x="843.37" y="911.5" >pubsub_client_as..</text>
+</g>
+<g >
+<title>alloc::vec::Vec&lt;T,A&gt;::push (5,025,125 samples, 1.85%)</title><rect x="862.2" y="741" width="21.9" height="15.0" fill="rgb(206,6,1)" rx="2" ry="2" />
+<text  x="865.22" y="751.5" >a..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::get_inner (5,025,125 samples, 1.85%)</title><rect x="1058.9" y="661" width="21.8" height="15.0" fill="rgb(222,79,18)" rx="2" ry="2" />
+<text  x="1061.89" y="671.5" >h..</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::with (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1157" width="1158.1" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="34.85" y="1167.5" >std::thread::local::LocalKey&lt;T&gt;::with</text>
+</g>
+<g >
+<title>std::panicking::catch_unwind (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1285" width="1158.1" height="15.0" fill="rgb(242,170,40)" rx="2" ry="2" />
+<text  x="34.85" y="1295.5" >std::panicking::catch_unwind</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::try_with (5,025,125 samples, 1.85%)</title><rect x="927.8" y="821" width="21.8" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="930.78" y="831.5" >s..</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::Hasher&lt;S&gt; as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="731.1" y="805" width="21.9" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="734.11" y="815.5" >&lt;..</text>
+</g>
+<g >
+<title>do_softirq (30,150,750 samples, 11.11%)</title><rect x="403.3" y="469" width="131.1" height="15.0" fill="rgb(223,87,20)" rx="2" ry="2" />
+<text  x="406.33" y="479.5" >do_softirq</text>
+</g>
+<g >
+<title>std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::h214186f2018a770b (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1237" width="1158.1" height="15.0" fill="rgb(230,115,27)" rx="2" ry="2" />
+<text  x="34.85" y="1247.5" >std::rt::lang_start::_$u7b$$u7b$closure$u7d$$u7d$::h214186f2018a770b</text>
+</g>
+<g >
+<title>core::slice::raw::from_raw_parts (5,025,125 samples, 1.85%)</title><rect x="818.5" y="885" width="21.9" height="15.0" fill="rgb(223,83,19)" rx="2" ry="2" />
+<text  x="821.52" y="895.5" >c..</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::with (15,075,375 samples, 5.56%)</title><rect x="1037.0" y="757" width="65.6" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="1040.04" y="767.5" >std::th..</text>
+</g>
+<g >
+<title>hashbrown::map::make_hash (5,025,125 samples, 1.85%)</title><rect x="643.7" y="869" width="21.9" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="646.70" y="879.5" >h..</text>
+</g>
+<g >
+<title>core::core_arch::aarch64::neon::generated::vcltz_s8 (5,025,125 samples, 1.85%)</title><rect x="1124.4" y="581" width="21.9" height="15.0" fill="rgb(214,43,10)" rx="2" ry="2" />
+<text  x="1127.44" y="591.5" >c..</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTableInner::find_inner (5,025,125 samples, 1.85%)</title><rect x="1080.7" y="613" width="21.9" height="15.0" fill="rgb(249,206,49)" rx="2" ry="2" />
+<text  x="1083.74" y="623.5" >h..</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::try_with (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1061" width="1158.1" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="34.85" y="1071.5" >std::thread::local::LocalKey&lt;T&gt;::try_with</text>
+</g>
+<g >
+<title>ip_rcv (20,100,500 samples, 7.41%)</title><rect x="206.7" y="213" width="87.4" height="15.0" fill="rgb(209,22,5)" rx="2" ry="2" />
+<text  x="209.67" y="223.5" >ip_rcv</text>
+</g>
+<g >
+<title>el0_svc (115,577,875 samples, 42.59%)</title><rect x="141.1" y="901" width="502.6" height="15.0" fill="rgb(244,183,43)" rx="2" ry="2" />
+<text  x="144.11" y="911.5" >el0_svc</text>
+</g>
+<g >
+<title>__arch_copy_from_user (5,025,125 samples, 1.85%)</title><rect x="359.6" y="661" width="21.9" height="15.0" fill="rgb(254,229,54)" rx="2" ry="2" />
+<text  x="362.63" y="671.5" >_..</text>
+</g>
+<g >
+<title>ip_protocol_deliver_rcu (30,150,750 samples, 11.11%)</title><rect x="403.3" y="229" width="131.1" height="15.0" fill="rgb(215,49,11)" rx="2" ry="2" />
+<text  x="406.33" y="239.5" >ip_protocol_deli..</text>
+</g>
+<g >
+<title>tcp_write_xmit (45,226,125 samples, 16.67%)</title><rect x="381.5" y="645" width="196.6" height="15.0" fill="rgb(231,122,29)" rx="2" ry="2" />
+<text  x="384.48" y="655.5" >tcp_write_xmit</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::insert (5,025,125 samples, 1.85%)</title><rect x="927.8" y="757" width="21.8" height="15.0" fill="rgb(221,75,18)" rx="2" ry="2" />
+<text  x="930.78" y="767.5" >h..</text>
+</g>
+<g >
+<title>__tcp_transmit_skb (30,150,750 samples, 11.11%)</title><rect x="163.0" y="549" width="131.1" height="15.0" fill="rgb(231,122,29)" rx="2" ry="2" />
+<text  x="165.96" y="559.5" >__tcp_transmit_skb</text>
+</g>
+<g >
+<title>std::collections::hash::map::HashMap&lt;K,V,S&gt;::remove (5,025,125 samples, 1.85%)</title><rect x="1168.1" y="917" width="21.9" height="15.0" fill="rgb(207,12,2)" rx="2" ry="2" />
+<text  x="1171.15" y="927.5" >s..</text>
+</g>
+<g >
+<title>core::ptr::read_unaligned (5,025,125 samples, 1.85%)</title><rect x="687.4" y="789" width="21.9" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="690.41" y="799.5" >c..</text>
+</g>
+<g >
+<title>io_uring::submit::Submitter::enter (125,628,125 samples, 46.30%)</title><rect x="97.4" y="981" width="546.3" height="15.0" fill="rgb(250,207,49)" rx="2" ry="2" />
+<text  x="100.41" y="991.5" >io_uring::submit::Submitter::enter</text>
+</g>
+<g >
+<title>kmem_cache_free (5,025,125 samples, 1.85%)</title><rect x="228.5" y="53" width="21.9" height="15.0" fill="rgb(254,225,53)" rx="2" ry="2" />
+<text  x="231.52" y="63.5" >k..</text>
+</g>
+<g >
+<title>iouring_bench::executor::get_task_id (5,025,125 samples, 1.85%)</title><rect x="1102.6" y="773" width="21.8" height="15.0" fill="rgb(244,182,43)" rx="2" ry="2" />
+<text  x="1105.59" y="783.5" >i..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::remove (5,025,125 samples, 1.85%)</title><rect x="1168.1" y="901" width="21.9" height="15.0" fill="rgb(216,53,12)" rx="2" ry="2" />
+<text  x="1171.15" y="911.5" >h..</text>
+</g>
+<g >
+<title>core::ptr::copy_nonoverlapping::precondition_check (5,025,125 samples, 1.85%)</title><rect x="949.6" y="725" width="21.9" height="15.0" fill="rgb(236,143,34)" rx="2" ry="2" />
+<text  x="952.63" y="735.5" >c..</text>
+</g>
+<g >
+<title>tcp_data_queue (5,025,125 samples, 1.85%)</title><rect x="512.6" y="165" width="21.8" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="515.59" y="175.5" >t..</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::with (40,201,000 samples, 14.81%)</title><rect x="643.7" y="981" width="174.8" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="646.70" y="991.5" >std::thread::local::Lo..</text>
+</g>
+<g >
+<title>core::ptr::copy_nonoverlapping::precondition_check (5,025,125 samples, 1.85%)</title><rect x="796.7" y="741" width="21.8" height="15.0" fill="rgb(236,143,34)" rx="2" ry="2" />
+<text  x="799.67" y="751.5" >c..</text>
+</g>
+<g >
+<title>futures_util::io::read_line::read_line_internal (35,175,875 samples, 12.96%)</title><rect x="1015.2" y="853" width="152.9" height="15.0" fill="rgb(219,68,16)" rx="2" ry="2" />
+<text  x="1018.19" y="863.5" >futures_util::io::r..</text>
+</g>
+<g >
+<title>__update_cpu_freelist_fast (5,025,125 samples, 1.85%)</title><rect x="228.5" y="37" width="21.9" height="15.0" fill="rgb(226,98,23)" rx="2" ry="2" />
+<text  x="231.52" y="47.5" >_..</text>
+</g>
+<g >
+<title>&lt;std::hash::random::DefaultHasher as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="1058.9" y="613" width="21.8" height="15.0" fill="rgb(234,134,32)" rx="2" ry="2" />
+<text  x="1061.89" y="623.5" >&lt;..</text>
+</g>
+<g >
+<title>core::hash::sip::SipHasher13::new_with_keys (5,025,125 samples, 1.85%)</title><rect x="774.8" y="837" width="21.9" height="15.0" fill="rgb(238,152,36)" rx="2" ry="2" />
+<text  x="777.81" y="847.5" >c..</text>
+</g>
+<g >
+<title>tcp_recvmsg_locked (30,150,750 samples, 11.11%)</title><rect x="163.0" y="629" width="131.1" height="15.0" fill="rgb(226,100,24)" rx="2" ry="2" />
+<text  x="165.96" y="639.5" >tcp_recvmsg_locked</text>
+</g>
+<g >
+<title>iouring_bench::executor::ExecutorInner::handle_completion (40,201,000 samples, 14.81%)</title><rect x="643.7" y="933" width="174.8" height="15.0" fill="rgb(212,35,8)" rx="2" ry="2" />
+<text  x="646.70" y="943.5" >iouring_bench::executo..</text>
+</g>
+<g >
+<title>core::ub_checks::maybe_is_nonoverlapping (5,025,125 samples, 1.85%)</title><rect x="949.6" y="709" width="21.9" height="15.0" fill="rgb(251,211,50)" rx="2" ry="2" />
+<text  x="952.63" y="719.5" >c..</text>
+</g>
+<g >
+<title>std::panic::catch_unwind (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1365" width="1158.1" height="15.0" fill="rgb(237,149,35)" rx="2" ry="2" />
+<text  x="34.85" y="1375.5" >std::panic::catch_unwind</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::get (5,025,125 samples, 1.85%)</title><rect x="1058.9" y="677" width="21.8" height="15.0" fill="rgb(224,88,21)" rx="2" ry="2" />
+<text  x="1061.89" y="687.5" >h..</text>
+</g>
+<g >
+<title>alloc::fmt::format::_$u7b$$u7b$closure$u7d$$u7d$::h3cf51c718e74739c (5,025,125 samples, 1.85%)</title><rect x="905.9" y="837" width="21.9" height="15.0" fill="rgb(246,190,45)" rx="2" ry="2" />
+<text  x="908.93" y="847.5" >a..</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::Hasher&lt;S&gt; as core::hash::Hasher&gt;::finish (5,025,125 samples, 1.85%)</title><rect x="1168.1" y="805" width="21.9" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="1171.15" y="815.5" >&lt;..</text>
+</g>
+<g >
+<title>__libc_start_main (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1445" width="1158.1" height="15.0" fill="rgb(236,142,34)" rx="2" ry="2" />
+<text  x="34.85" y="1455.5" >__libc_start_main</text>
+</g>
+<g >
+<title>net_rx_action (30,150,750 samples, 11.11%)</title><rect x="403.3" y="373" width="131.1" height="15.0" fill="rgb(240,164,39)" rx="2" ry="2" />
+<text  x="406.33" y="383.5" >net_rx_action</text>
+</g>
+<g >
+<title>iouring_bench::uring::submit::_$u7b$$u7b$closure$u7d$$u7d$::h31f1610c2e5ee1fc (5,025,125 samples, 1.85%)</title><rect x="862.2" y="773" width="21.9" height="15.0" fill="rgb(228,109,26)" rx="2" ry="2" />
+<text  x="865.22" y="783.5" >i..</text>
+</g>
+<g >
+<title>io_submit_sqes (65,326,625 samples, 24.07%)</title><rect x="337.8" y="805" width="284.1" height="15.0" fill="rgb(209,18,4)" rx="2" ry="2" />
+<text  x="340.78" y="815.5" >io_submit_sqes</text>
+</g>
+<g >
+<title>task_work_run (40,201,000 samples, 14.81%)</title><rect x="141.1" y="773" width="174.8" height="15.0" fill="rgb(209,22,5)" rx="2" ry="2" />
+<text  x="144.11" y="783.5" >task_work_run</text>
+</g>
+<g >
+<title>hashbrown::raw::RawTable&lt;T,A&gt;::find (5,025,125 samples, 1.85%)</title><rect x="884.1" y="709" width="21.8" height="15.0" fill="rgb(248,200,47)" rx="2" ry="2" />
+<text  x="887.07" y="719.5" >h..</text>
+</g>
+<g >
+<title>&lt;iouring_bench::net::TcpStream as futures_io::if_std::AsyncRead&gt;::poll_read (30,150,750 samples, 11.11%)</title><rect x="1015.2" y="789" width="131.1" height="15.0" fill="rgb(249,204,48)" rx="2" ry="2" />
+<text  x="1018.19" y="799.5" >&lt;iouring_bench::..</text>
+</g>
+<g >
+<title>&lt;core::hash::sip::Sip13Rounds as core::hash::sip::Sip&gt;::d_rounds (5,025,125 samples, 1.85%)</title><rect x="1168.1" y="789" width="21.9" height="15.0" fill="rgb(248,198,47)" rx="2" ry="2" />
+<text  x="1171.15" y="799.5" >&lt;..</text>
+</g>
+<g >
+<title>net_rx_action (25,125,625 samples, 9.26%)</title><rect x="184.8" y="293" width="109.3" height="15.0" fill="rgb(240,164,39)" rx="2" ry="2" />
+<text  x="187.81" y="303.5" >net_rx_action</text>
+</g>
+<g >
+<title>ip_local_deliver_finish (30,150,750 samples, 11.11%)</title><rect x="403.3" y="245" width="131.1" height="15.0" fill="rgb(225,95,22)" rx="2" ry="2" />
+<text  x="406.33" y="255.5" >ip_local_deliver..</text>
+</g>
+<g >
+<title>iouring_bench::executor::handle_completion (40,201,000 samples, 14.81%)</title><rect x="643.7" y="997" width="174.8" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="646.70" y="1007.5" >iouring_bench::executo..</text>
+</g>
+<g >
+<title>inet_recvmsg (5,025,125 samples, 1.85%)</title><rect x="337.8" y="741" width="21.8" height="15.0" fill="rgb(206,5,1)" rx="2" ry="2" />
+<text  x="340.78" y="751.5" >i..</text>
+</g>
+<g >
+<title>core::num::&lt;impl u64&gt;::rotate_left (5,025,125 samples, 1.85%)</title><rect x="731.1" y="773" width="21.9" height="15.0" fill="rgb(207,10,2)" rx="2" ry="2" />
+<text  x="734.11" y="783.5" >c..</text>
+</g>
+<g >
+<title>skb_do_copy_data_nocache (5,025,125 samples, 1.85%)</title><rect x="359.6" y="677" width="21.9" height="15.0" fill="rgb(210,26,6)" rx="2" ry="2" />
+<text  x="362.63" y="687.5" >s..</text>
+</g>
+<g >
+<title>kfree_skbmem (5,025,125 samples, 1.85%)</title><rect x="228.5" y="69" width="21.9" height="15.0" fill="rgb(230,117,28)" rx="2" ry="2" />
+<text  x="231.52" y="79.5" >k..</text>
+</g>
+<g >
+<title>tcp_rcv_established (20,100,500 samples, 7.41%)</title><rect x="447.0" y="181" width="87.4" height="15.0" fill="rgb(242,170,40)" rx="2" ry="2" />
+<text  x="450.04" y="191.5" >tcp_rcv_es..</text>
+</g>
+<g >
+<title>neigh_hh_output (35,175,875 samples, 12.96%)</title><rect x="381.5" y="517" width="152.9" height="15.0" fill="rgb(213,37,8)" rx="2" ry="2" />
+<text  x="384.48" y="527.5" >neigh_hh_output</text>
+</g>
+<g >
+<title>__inet_lookup_skb (5,025,125 samples, 1.85%)</title><rect x="425.2" y="197" width="21.8" height="15.0" fill="rgb(248,200,48)" rx="2" ry="2" />
+<text  x="428.19" y="207.5" >_..</text>
+</g>
+<g >
+<title>core::ops::function::impls::&lt;impl core::ops::function::FnOnce&lt;A&gt; for &amp;F&gt;::call_once (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1253" width="1158.1" height="15.0" fill="rgb(223,87,20)" rx="2" ry="2" />
+<text  x="34.85" y="1263.5" >core::ops::function::impls::&lt;impl core::ops::function::FnOnce&lt;A&gt; for &amp;F&gt;::call_once</text>
+</g>
+<g >
+<title>el0t_64_sync (115,577,875 samples, 42.59%)</title><rect x="141.1" y="933" width="502.6" height="15.0" fill="rgb(217,56,13)" rx="2" ry="2" />
+<text  x="144.11" y="943.5" >el0t_64_sync</text>
+</g>
+<g >
+<title>core::ub_checks::maybe_is_nonoverlapping::runtime (5,025,125 samples, 1.85%)</title><rect x="1080.7" y="501" width="21.9" height="15.0" fill="rgb(214,44,10)" rx="2" ry="2" />
+<text  x="1083.74" y="511.5" >c..</text>
+</g>
+<g >
+<title>std::collections::hash::map::HashMap&lt;K,V,S&gt;::entry (5,025,125 samples, 1.85%)</title><rect x="949.6" y="853" width="21.9" height="15.0" fill="rgb(251,215,51)" rx="2" ry="2" />
+<text  x="952.63" y="863.5" >s..</text>
+</g>
+<g >
+<title>std::panic::catch_unwind (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1301" width="1158.1" height="15.0" fill="rgb(237,149,35)" rx="2" ry="2" />
+<text  x="34.85" y="1311.5" >std::panic::catch_unwind</text>
+</g>
+<g >
+<title>hashbrown::control::group::neon::Group::match_tag (5,025,125 samples, 1.85%)</title><rect x="709.3" y="821" width="21.8" height="15.0" fill="rgb(243,176,42)" rx="2" ry="2" />
+<text  x="712.26" y="831.5" >h..</text>
+</g>
+<g >
+<title>main (266,331,625 samples, 98.15%)</title><rect x="31.9" y="1413" width="1158.1" height="15.0" fill="rgb(243,179,42)" rx="2" ry="2" />
+<text  x="34.85" y="1423.5" >main</text>
+</g>
+<g >
+<title>sock_from_file (5,025,125 samples, 1.85%)</title><rect x="578.1" y="773" width="21.9" height="15.0" fill="rgb(241,168,40)" rx="2" ry="2" />
+<text  x="581.15" y="783.5" >s..</text>
+</g>
+<g >
+<title>hashbrown::control::group::neon::Group::load (5,025,125 samples, 1.85%)</title><rect x="927.8" y="693" width="21.8" height="15.0" fill="rgb(252,218,52)" rx="2" ry="2" />
+<text  x="930.78" y="703.5" >h..</text>
+</g>
+<g >
+<title>core::ptr::copy_nonoverlapping::precondition_check (5,025,125 samples, 1.85%)</title><rect x="687.4" y="757" width="21.9" height="15.0" fill="rgb(236,143,34)" rx="2" ry="2" />
+<text  x="690.41" y="767.5" >c..</text>
+</g>
+<g >
+<title>__netif_receive_skb (20,100,500 samples, 7.41%)</title><rect x="206.7" y="245" width="87.4" height="15.0" fill="rgb(218,60,14)" rx="2" ry="2" />
+<text  x="209.67" y="255.5" >__netif_re..</text>
+</g>
+<g >
+<title>__ip_finish_output (25,125,625 samples, 9.26%)</title><rect x="184.8" y="469" width="109.3" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="187.81" y="479.5" >__ip_finish_o..</text>
+</g>
+<g >
+<title>iouring_bench::executor::ExecutorInner::run::_$u7b$$u7b$closure$u7d$$u7d$::h5037b9ef5a9fbf02 (40,201,000 samples, 14.81%)</title><rect x="643.7" y="1013" width="174.8" height="15.0" fill="rgb(208,15,3)" rx="2" ry="2" />
+<text  x="646.70" y="1023.5" >iouring_bench::executo..</text>
+</g>
+<g >
+<title>alloc::vec::Vec&lt;T,A&gt;::push_mut (5,025,125 samples, 1.85%)</title><rect x="862.2" y="725" width="21.9" height="15.0" fill="rgb(233,130,31)" rx="2" ry="2" />
+<text  x="865.22" y="735.5" >a..</text>
+</g>
+<g >
+<title>hashbrown::map::make_hash (15,075,375 samples, 5.56%)</title><rect x="753.0" y="885" width="65.5" height="15.0" fill="rgb(230,116,27)" rx="2" ry="2" />
+<text  x="755.96" y="895.5" >hashbro..</text>
+</g>
+<g >
+<title>futures_util::io::read_until::read_until_internal (35,175,875 samples, 12.96%)</title><rect x="1015.2" y="837" width="152.9" height="15.0" fill="rgb(214,43,10)" rx="2" ry="2" />
+<text  x="1018.19" y="847.5" >futures_util::io::r..</text>
+</g>
+<g >
+<title>__tcp_push_pending_frames (45,226,125 samples, 16.67%)</title><rect x="381.5" y="661" width="196.6" height="15.0" fill="rgb(230,117,28)" rx="2" ry="2" />
+<text  x="384.48" y="671.5" >__tcp_push_pending_frames</text>
+</g>
+<g >
+<title>iouring_bench::executor::schedule_completion (5,025,125 samples, 1.85%)</title><rect x="1124.4" y="773" width="21.9" height="15.0" fill="rgb(211,31,7)" rx="2" ry="2" />
+<text  x="1127.44" y="783.5" >i..</text>
+</g>
+<g >
+<title>iouring_bench::uring::Uring::submit (5,025,125 samples, 1.85%)</title><rect x="862.2" y="757" width="21.9" height="15.0" fill="rgb(252,219,52)" rx="2" ry="2" />
+<text  x="865.22" y="767.5" >i..</text>
+</g>
+<g >
+<title>__tcp_cleanup_rbuf (30,150,750 samples, 11.11%)</title><rect x="163.0" y="597" width="131.1" height="15.0" fill="rgb(206,4,1)" rx="2" ry="2" />
+<text  x="165.96" y="607.5" >__tcp_cleanup_rbuf</text>
+</g>
+<g >
+<title>pubsub_client_async::handle_subscriber::_$u7b$$u7b$closure$u7d$$u7d$::hc34afa0720c6a644 (40,201,000 samples, 14.81%)</title><rect x="993.3" y="885" width="174.8" height="15.0" fill="rgb(253,224,53)" rx="2" ry="2" />
+<text  x="996.33" y="895.5" >pubsub_client_async::h..</text>
+</g>
+<g >
+<title>hashbrown::map::HashMap&lt;K,V,S,A&gt;::find_or_find_insert_slot (5,025,125 samples, 1.85%)</title><rect x="927.8" y="741" width="21.8" height="15.0" fill="rgb(218,62,15)" rx="2" ry="2" />
+<text  x="930.78" y="751.5" >h..</text>
+</g>
+<g >
+<title>core::option::Option&lt;T&gt;::map_or_else (5,025,125 samples, 1.85%)</title><rect x="905.9" y="853" width="21.9" height="15.0" fill="rgb(223,86,20)" rx="2" ry="2" />
+<text  x="908.93" y="863.5" >c..</text>
+</g>
+<g >
+<title>sock_recvmsg (5,025,125 samples, 1.85%)</title><rect x="294.1" y="693" width="21.8" height="15.0" fill="rgb(206,5,1)" rx="2" ry="2" />
+<text  x="297.07" y="703.5" >s..</text>
+</g>
+<g >
+<title>__local_bh_enable_ip (25,125,625 samples, 9.26%)</title><rect x="184.8" y="405" width="109.3" height="15.0" fill="rgb(237,147,35)" rx="2" ry="2" />
+<text  x="187.81" y="415.5" >__local_bh_en..</text>
+</g>
+<g >
+<title>&lt;core::ops::range::Range&lt;usize&gt; as core::slice::index::SliceIndex&lt;[T]&gt;&gt;::index (5,025,125 samples, 1.85%)</title><rect x="1146.3" y="773" width="21.8" height="15.0" fill="rgb(225,96,22)" rx="2" ry="2" />
+<text  x="1149.30" y="783.5" >&lt;..</text>
+</g>
+<g >
+<title>std::collections::hash::map::HashMap&lt;K,V,S&gt;::insert (5,025,125 samples, 1.85%)</title><rect x="1124.4" y="693" width="21.9" height="15.0" fill="rgb(212,34,8)" rx="2" ry="2" />
+<text  x="1127.44" y="703.5" >s..</text>
+</g>
+<g >
+<title>std::thread::local::LocalKey&lt;T&gt;::with (5,025,125 samples, 1.85%)</title><rect x="927.8" y="837" width="21.8" height="15.0" fill="rgb(227,103,24)" rx="2" ry="2" />
+<text  x="930.78" y="847.5" >s..</text>
+</g>
+<g >
+<title>tcp_send_delayed_ack (5,025,125 samples, 1.85%)</title><rect x="490.7" y="149" width="21.9" height="15.0" fill="rgb(248,197,47)" rx="2" ry="2" />
+<text  x="493.74" y="159.5" >t..</text>
+</g>
+<g >
+<title>std::collections::hash::map::HashMap&lt;K,V,S&gt;::get (5,025,125 samples, 1.85%)</title><rect x="731.1" y="917" width="21.9" height="15.0" fill="rgb(215,47,11)" rx="2" ry="2" />
+<text  x="734.11" y="927.5" >s..</text>
+</g>
+<g >
+<title>io_init_req (5,025,125 samples, 1.85%)</title><rect x="315.9" y="805" width="21.9" height="15.0" fill="rgb(205,2,0)" rx="2" ry="2" />
+<text  x="318.93" y="815.5" >i..</text>
+</g>
+</g>
+</svg>
