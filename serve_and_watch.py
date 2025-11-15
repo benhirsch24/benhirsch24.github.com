@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 import http.server
 import socketserver
 import os
@@ -14,6 +15,7 @@ PORT = 8000
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 POSTS_DIR = os.path.join(DIRECTORY, "posts_md")
 DRAFTS_DIR = os.path.join(DIRECTORY, "drafts")
+INCLUDE_DRAFTS = False
 
 class PostChangeHandler(FileSystemEventHandler):
     def on_modified(self, event):
@@ -28,7 +30,10 @@ class PostChangeHandler(FileSystemEventHandler):
 
 def rebuild_site():
     print("Rebuilding site...")
-    subprocess.run(["python", "site_builder.py"], cwd=DIRECTORY)#, "--include-drafts"], cwd=DIRECTORY)
+    args = ["python", "site_builder.py"]
+    if INCLUDE_DRAFTS:
+        args.append("--include-drafts")
+    subprocess.run(args, cwd=DIRECTORY)
     print("Site rebuilt successfully")
 
 class MyTCPServer(socketserver.TCPServer):
@@ -59,6 +64,16 @@ def start_file_watcher():
     observer.join()
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Serve site and rebuild on changes")
+    parser.add_argument(
+        "--include-drafts",
+        action="store_true",
+        help="Include drafts when rebuilding the site",
+    )
+    args = parser.parse_args()
+
+    INCLUDE_DRAFTS = args.include_drafts
+
     # Start HTTP server in a separate thread
     server_thread = threading.Thread(target=start_http_server)
     server_thread.daemon = True
