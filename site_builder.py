@@ -5,6 +5,7 @@ import os
 import re
 import glob
 import datetime
+import html
 import markdown
 from bs4 import BeautifulSoup
 from pathlib import Path
@@ -19,6 +20,7 @@ ABOUT_MD = "/Users/ben/benhirsch24.github.com/about.md"
 ABOUT_HTML = "/Users/ben/benhirsch24.github.com/about.html"
 LAYOUT_HTML = "/Users/ben/benhirsch24.github.com/layout.html"
 MAX_POSTS = 5
+MIN_HEADINGS_FOR_TOC = 2
 
 # Ensure posts directory exists
 os.makedirs(POSTS_DIR, exist_ok=True)
@@ -82,6 +84,89 @@ def extract_first_paragraph(content):
 
     return paragraph
 
+
+def slugify_heading(text, existing_ids):
+    """Create a slug suitable for heading IDs and ensure uniqueness."""
+    slug = re.sub(r'[^a-zA-Z0-9\s-]', '', text).strip().lower()
+    slug = re.sub(r'\s+', '-', slug)
+    slug = slug or 'section'
+    base_slug = slug
+    counter = 2
+    while slug in existing_ids:
+        slug = f"{base_slug}-{counter}"
+        counter += 1
+    existing_ids.add(slug)
+    return slug
+
+
+def collect_headings(html_content):
+    """Parse HTML, inject heading IDs, and return headings for TOC."""
+    soup = BeautifulSoup(html_content, 'html.parser')
+    existing_ids = {tag.get('id') for tag in soup.find_all(id=True)}
+    existing_ids.discard(None)
+    headings = []
+
+    for tag in soup.find_all(['h2', 'h3']):
+        text = tag.get_text(strip=True)
+        if not text:
+            continue
+        heading_id = slugify_heading(text, existing_ids)
+        tag['id'] = heading_id
+        headings.append({'level': int(tag.name[1]), 'id': heading_id, 'text': text})
+
+    return soup, headings
+
+
+def build_toc_structure(headings):
+    """Build a nested list with h2 as parents and h3 as children."""
+    toc = []
+    current_parent = None
+
+    for heading in headings:
+        if heading['level'] == 2:
+            current_parent = {'heading': heading, 'children': []}
+            toc.append(current_parent)
+        elif heading['level'] == 3:
+            if current_parent:
+                current_parent['children'].append(heading)
+            else:
+                toc.append({'heading': heading, 'children': []})
+
+    return toc
+
+
+def render_toc_html(toc_structure):
+    """Render the TOC structure to HTML."""
+    if not toc_structure:
+        return ''
+
+    html_parts = [
+        '<aside class="post-toc" aria-label="Table of contents">',
+        '<h2>On this page</h2>',
+        '<nav><ol>'
+    ]
+
+    for node in toc_structure:
+        heading = node['heading']
+        heading_text = html.escape(heading['text'])
+        heading_id = heading['id']
+        html_parts.append(
+            f"<li><a href='#{heading_id}'>{heading_text}</a>"
+        )
+        if node['children']:
+            html_parts.append('<ol>')
+            for child in node['children']:
+                child_text = html.escape(child['text'])
+                child_id = child['id']
+                html_parts.append(
+                    f"<li><a href='#{child_id}'>{child_text}</a></li>"
+                )
+            html_parts.append('</ol>')
+        html_parts.append('</li>')
+
+    html_parts.append('</ol></nav></aside>')
+    return ''.join(html_parts)
+
 def format_date(date_str):
     """Format date string into a more readable format."""
     try:
@@ -123,19 +208,37 @@ def convert_md_to_html(md_path, layout_template):
                    'attr_list']
     )
 
-    # Wrap content in article tag with post styling
-    post_html = f"""
+    soup, headings = collect_headings(html_content)
+    processed_content = str(soup)
+    toc_html = ''
+
+    if len(headings) >= MIN_HEADINGS_FOR_TOC:
+        toc_structure = build_toc_structure(headings)
+        toc_html = render_toc_html(toc_structure)
+
+    article_html = f"""
     <article class="post">
         <h1 class="post-title">{title}</h1>
         <div class="post-info">{formatted_date}</div>
         <div class="post-content">
-            {html_content}
+            {processed_content}
         </div>
     </article>
     """
 
+    if toc_html:
+        post_html = f"""
+        <div class="post-layout">
+            {toc_html}
+            {article_html}
+        </div>
+        """
+    else:
+        post_html = article_html
+
     # Adjust CSS path for posts (which are in a subdirectory)
     adjusted_layout = layout_template.replace('href="./css/main.css"', 'href="../css/main.css"')
+    adjusted_layout = adjusted_layout.replace('src="./js/main.js"', 'src="../js/main.js"')
 
     # Insert into layout template
     final_html = adjusted_layout.replace('{{ content }}', post_html)
