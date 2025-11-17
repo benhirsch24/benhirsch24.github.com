@@ -21,6 +21,9 @@
 
     <main>
         
+        <div class="post-layout">
+            <aside class="post-toc" aria-label="Table of contents"><h2>On this page</h2><nav><ol><li><a href='#table-of-contents'>Table of Contents</a></li><li><a href='#worklog'>Worklog</a><ol><li><a href='#understanding-io-uring-more'>Understanding IO Uring more</a></li><li><a href='#back-to-working-1006-evening'>Back to working 10/06 evening</a></li><li><a href='#107-refactoring-netdevconf-presentations'>10/7 Refactoring, NetDevConf presentations</a></li><li><a href='#1010-more-abstraction'>10/10 More abstraction</a></li><li><a href='#1011-writing-pubsub-server'>10/11 Writing Pubsub Server</a><ol><li><a href='#worklog-stream-of-thoughts-on-pubsub-implementation'>Worklog stream of thoughts on pubsub implementation</a></li></ol></li><li><a href='#cool-test-can-i-make-a-pubsub-load-test-with-my-own-library'>Cool test: Can I make a pubsub load test with my own library?</a></li><li><a href='#popping-up-one-level'>Popping up one level</a></li><li><a href='#1012-pubsub-client-with-callbacks'>10/12 PubSub client with Callbacks</a></li></ol></li></ol></nav></aside>
+            
     <article class="post">
         <h1 class="post-title">IO Uring Worklog Part 2</h1>
         <div class="post-info">October 12, 2025</div>
@@ -29,7 +32,7 @@
 <p>I'll try to keep summarizing in the first section. Here's a ChatGPT summary of this worklog which is unfortunately very accurate:</p>
 <p>I spent a week turning an io_uring toy server into a batching lab: I implemented an adaptive strategy that busy-polls with small batches under load and parks with submit_and_wait when idle, added histograms to see what it’s doing, and built a fan-out PUB/SUB prototype to create real opportunities to coalesce syscalls. Along the way I dove through kernel paths for socket reads, wired up tracepoints/kprobes, refactored the event loop with a thread-local ring and a callback registry (escaping borrow checker fights with UnsafeCell in this single-threaded design), standardized on Bytes/BytesMut, and sketched a buffer pool and a cleaner Server API. Next up: parameterized load tests, buffer registration experiments, and head-to-head benchmarks against Tokio/Glommio to see how much syscall coalescing really buys us.</p>
 <p>I'll add: I think the most interesting bits are the Abstraction and Pubsub clients with state machine and callbacks. If you've ever wondered about writing a runtime around an async system you can see me start to evolve one by the end. I may spin this out into a separate post at some point (more dedicated than a worklog).</p>
-<h2>Table of Contents</h2>
+<h2 id="table-of-contents">Table of Contents</h2>
 <p><a href="#understanding">Understanding IO Uring more</a> - Used Codex to help me read through Linux source code and understand how IO Uring works under the hood. Also thought through how to optimally batch entries to the submission queue to balance latency versus excessive syscalls. Started thinking about a use-case where I could see if IO Uring could really shine - pubsub server with subscribers &gt;&gt;&gt; publishers (high fan-out).</p>
 <p>My basic understanding of how IO uring is something like: In non-SQPOLL mode when I submit syscalls in a batch with <code>io_uring_enter/submit</code> the kernel will try to do each of these syscalls and create a task for them (io uring task). It will try to execute these syscalls against the fd in async / non-blocking mode. When network packets arrive on the NIC it interrupts the CPU which tells the kernel to do something with the packets. The kernel does something with them and then does a "wake" of the io task. Next time io uring enters (or next time the kernel tasks run) it can put an event on the completion queue that there is data ready. In SQPOLL mode you have a dedicated kernel thread polling. This can reduce latency for syscalls (no waiting for kernel task scheduling) but at the cost of a CPU busy-polling the whole time. Still, in latency sensitive applications this can be useful because your application doesn't need to spend time switching between kernel and userspace. I'll have to explore more of the other modes.</p>
 <p><a href="#abstraction">Beginning Abstraction</a> - Here I started to abstract things out more. I pulled IoUring logic out into its own module. I also highlighted some interesting presentations from NetDevConf that I found while googling information.</p>
@@ -37,14 +40,14 @@
 <p><a href="#pubsub-server">Pubsub Server</a> - I wanted to test out the batching idea from before by writing a pubsub server in main.rs. Defined a very simple protocol, thought through sending a single buffer to each subscriber, a little abstraction.</p>
 <p><a href="#dogfooding">Pubsub Client with State Machine</a> - To test my Pubsub Server I decided to write a pubsub client using IO Uring instead of doing it with Tokio or in Go or something. Got something working pretty quickly in one night which was cool.</p>
 <p><a href="#callbacks">Pubsub Client with callbacks</a> - Without an async runtime the completion model can get tricky. You have to define a state machine to transition at every completion and decide what to do next. Here I decided to re-write the pubsub client but where I register callbacks for each completion event. This ends up being a lot nicer to work with, although not quite as nice as async/await.</p>
-<h2>Worklog</h2>
+<h2 id="worklog">Worklog</h2>
 <p>10/04 - 10/06ish aka working in Tahoe in between excursions with my wife and son because I'm now obsessed.</p>
 <p>Trying a new way with batching requests where I <code>submit_and_wait</code> if I haven't submitted for a period of time.</p>
 <p>I think another cool thing I could try is a dynamic batch size. If I have a bunch of requests in flight (and realistically a bunch of talking requests, not idle ones) I could make the batch size bigger. If they slow down, so does the batch size. But I still don't have the intuition for this or what I want it to do. For low latency applications with lots of constant work I think I basically want to busy-poll with submit with small/medium batches. For less latency sensitive applications I can have bigger batch sizes... but I'd still want to batch to some extent and then submit and wait when I have no work? I don't know, still thinking it through.</p>
 <p>I think what I'd want to do is: If I have lots of work (ie lots coming off the completion queue) then I batch up a bunch as I can into few <code>submit</code> calls. However if I do not have a lot of work, then I just submit whatever I have into <code>submit_and_wait</code>. This way if we have lots of work we make few syscalls. If we have little work then we're just queueing what we have and we park the program until the work arrives. If I busy loop (ie do not call <code>submit_and_wait</code>) then I'm hoping that more work arrives on the completion queue and enough will arrive that I can submit another batch. However if that's not the case then I'm just eating CPU looping over and over for work that doesn't arrive.</p>
 <p>Btw multishot accept was very simple and does make the program easier though. Same with multishot timeout.</p>
 <p>I'm adding some histogram metrics to see how long between writes I'm going. I'm also trying to add some stats around submit_and_wait so I know how many IOps I'm queueing each time there instead of in batches in submit. I feel like if I wanted to try my "adaptive batch size" idea this would be the first step.</p>
-<h3 id="understanding">Understanding IO Uring more</h3>
+<h3 id="understanding-io-uring-more">Understanding IO Uring more</h3>
 <p>To build a better intuition with io uring I downloaded the Linux source code and then went through it with the help of OpenAI's Codex. I feel like I have a better understanding of how this is actually working (and a better understanding of Linux workings in general). Here's the transcript of our conversation. I edited some of the cruft out (where it makes a plan, explores files, etc).</p>
 <p>I found this extremely helpful, and then going from this conversation back to the <a href="https://blog.cloudflare.com/missing-manuals-io_uring-worker-pool/">CloudFlare Missing Manuals - io_uring worker pool</a> article I had a way better idea of what was going on in that article.</p>
 <pre><code>▌ read through the code in io_uring to pull it into your context. I'm specifically interested in tracing the path that requests take from submission queue (enqueued by io_uring_enter) to how they're scheduled for
@@ -121,10 +124,10 @@
 
   sudo bpftrace -e '
   tracepoint:io_uring:io_uring_submit_sqe /pid == PID/ {
-      printf(&quot;%llu submit %p op %d user_data=%lx\n&quot;, nsecs, args-&gt;ctx, args-&gt;opcode, args-&gt;user_data);
+      printf("%llu submit %p op %d user_data=%lx\n", nsecs, args-&gt;ctx, args-&gt;opcode, args-&gt;user_data);
   }
   tracepoint:io_uring:io_uring_complete /pid == PID/ {
-      printf(&quot;%llu complete %p res=%d flags=0x%x user_data=%lx\n&quot;, nsecs, args-&gt;ctx, args-&gt;res, args-&gt;cflags, args-&gt;userdata);
+      printf("%llu complete %p res=%d flags=0x%x user_data=%lx\n", nsecs, args-&gt;ctx, args-&gt;res, args-&gt;cflags, args-&gt;userdata);
   }'
 
   - Follow the read-fast-path with kprobes:
@@ -132,7 +135,7 @@
   sudo bpftrace -e '
   kprobe:io_submit_sqe, kprobe:io_read, kretprobe:io_read /pid == PID/ {
       @depth[probe] = count();
-      printf(&quot;%llu %s ret=%d\n&quot;, nsecs, probe, retval);
+      printf("%llu %s ret=%d\n", nsecs, probe, retval);
   }'
 
   Add kretprobe:__io_read to see retry decisions.
@@ -140,9 +143,9 @@
   - Watch async punts for sockets:
 
   sudo bpftrace -e '
-  kprobe:io_queue_async /pid == PID/ { printf(&quot;%llu punt %p flags=0x%llx\n&quot;, nsecs, arg0, ((struct io_kiocb*)arg0)-&gt;flags); }
+  kprobe:io_queue_async /pid == PID/ { printf("%llu punt %p flags=0x%llx\n", nsecs, arg0, ((struct io_kiocb*)arg0)-&gt;flags); }
   tracepoint:io_uring:io_uring_queue_async_work /pid == PID/ {
-      printf(&quot;%llu async %p opcode=%s\n&quot;, nsecs, args-&gt;req, str(args-&gt;op_str));
+      printf("%llu async %p opcode=%s\n", nsecs, args-&gt;req, str(args-&gt;op_str));
   }'
 
   Workflow Tips
@@ -158,7 +161,7 @@
   2. Extend the kprobe script to emit ustack()/kstack() for slow completions (e.g., if (retval == -EAGAIN) { ustack(); }).
   3. If you need long-term metrics, reimplement the snippets as persistent eBPF programs (BCC or libbpf) that aggregate latencies in histograms for Grafana/Prometheus export.
 
-▌ I got &quot;ERROR: tracepoint not found: io_uring:io_uring_submit_sqe&quot;
+▌ I got "ERROR: tracepoint not found: io_uring:io_uring_submit_sqe"
 
 • Explored
   └ Search TRACE_EVENT\(io_uring_submit_sqe
@@ -180,11 +183,11 @@
 
   sudo bpftrace -e '
   tracepoint:io_uring:io_uring_submit_req /pid == TARGET/ {
-    printf(&quot;%d submit %p opcode=%s user_data=0x%llx flags=0x%llx\n&quot;,
+    printf("%d submit %p opcode=%s user_data=0x%llx flags=0x%llx\n",
            pid, args-&gt;req, str(args-&gt;op_str), args-&gt;user_data, args-&gt;flags);
   }
   tracepoint:io_uring:io_uring_complete /pid == TARGET/ {
-    printf(&quot;%d complete %p res=%d cflags=0x%x user_data=0x%llx\n&quot;,
+    printf("%d complete %p res=%d cflags=0x%x user_data=0x%llx\n",
            pid, args-&gt;req, args-&gt;res, args-&gt;cflags, args-&gt;user_data);
   }'
 
@@ -195,7 +198,7 @@
 
   sudo bpftrace -e '
   kprobe:io_read, kretprobe:io_read /pid == TARGET/ {
-    printf(&quot;%d %s ret=%d\n&quot;, pid, probe, retval);
+    printf("%d %s ret=%d\n", pid, probe, retval);
   }'
 
   This works even when tracepoints aren’t available, at the cost of relying on function names/stability.
@@ -239,7 +242,7 @@
 
 ▌ Is it fair to say that io_uring (without SQPOLL) isn't really async, but it appears async from the application's perspective? What I mean by that is: when the application calls io_uring_enter it is doing a
 ▌ syscall into the io_uring code which is then performing all of the syscalls from the submission queue ring and then (if applicable) finishing up any queued io work into the cq. The efficiency gains come from
-▌ batching syscalls so that the program only makes one user -&gt; system transition (if batched appropriately). But the syscalls are done &quot;synchronously&quot; in the sense that they will all be done in one batch by the
+▌ batching syscalls so that the program only makes one user -&gt; system transition (if batched appropriately). But the syscalls are done "synchronously" in the sense that they will all be done in one batch by the
 ▌ enter call.
 
 &gt; Not quite. Even without SQPOLL, io_uring is still capable of doing fully asynchronous work; you just happen to be the thread that initiates the requests when you call io_uring_enter(). What happens next depends
@@ -255,7 +258,7 @@
   So the syscall is a submission trigger and completion-flush point, not the exclusive executor of the work. When the target file/socket can make progress without blocking, you’ll see the “looks synchronous”
   behaviour; otherwise io_uring behaves like the async engine it’s designed to be.
 
-▌ For a network socket which path does that take? That would be fast path because it's non-blocking right? Can you describe more how data arrives and what &quot;executes&quot; to get the data into user memory?
+▌ For a network socket which path does that take? That would be fast path because it's non-blocking right? Can you describe more how data arrives and what "executes" to get the data into user memory?
 ▌
 ▌ My intuition: User application calls io_uring enter, it issues a read which is non-blocking so that file descriptor is watched by the kernel. When data arrives on the NIC it executes an interrupt which runs some
 ▌ code (by the kernel?), looks up the file descriptor associated to the data, and then figures out where to DMA the data arriving in the NIC buffers to. The DMA can be async from the kernel's perspective (it
@@ -308,7 +311,7 @@
 
   So the fast path does exist (when data is already queued), but io_uring’s async machinery takes over automatically when the socket would otherwise block.
 </code></pre>
-<h3>Back to working 10/06 evening</h3>
+<h3 id="back-to-working-1006-evening">Back to working 10/06 evening</h3>
 <p><a href="https://github.com/benhirsch24/iouring_bench/commit/c8135a39de7265c222b1712bd44cacd895e25dd4">Commit</a></p>
 <ul>
 <li>Added multishot timeout (easy)</li>
@@ -336,7 +339,7 @@
 <li>This API feels pretty ephemeral as a system. But in a CDN you'd want to fetch the content if it's already been produced/cached. Replayability of content would be interesting to add.</li>
 <li>Load testing isn't as simple as vegeta or wrk. Probably would want to write something simple in Go or Rust that has a configurable number of subscribers per topic and how often each publisher publishes. Also the size of the publish payload should be ~1MB like I'm testing now, but we could vary the sizes. This feels vibe-codeable.</li>
 </ul>
-<h3 id="abstraction">10/7 Refactoring, NetDevConf presentations</h3>
+<h3 id="107-refactoring-netdevconf-presentations">10/7 Refactoring, NetDevConf presentations</h3>
 <p>Just doing some refactoring after the first day of our IVS onsite</p>
 <p>Thinking about how to abstract a little bit more. I think it'd be nice, but I think it'd be hard. For example if I add more and more routes, it would be difficult to have all this logic in "serve".</p>
 <p>Ideally I probably want to pull the IoUring logic out into its own module, then share that with Request, and let Request add things to the submission queue. Then the main loop is just pulling from my deque of events, pushing to io_uring sq, pulling from cq, and then poking requests to keep going.</p>
@@ -346,7 +349,7 @@
 <p>Reading more of these netdevconf presentations in general is interesting, here's one about <a href="https://netdevconf.info/0x18/docs/netdev-0x18-paper10-talk-slides/Real%20world%20tips,%20tricks,%20and%20notes%20of%20using%20epoll-based%20busy%20polling%20v2.pdf">busy-polling to reduce latency</a>. And I was just thinking through how IRQs work and learning more (/re-learning, I did take networking and OSes in college but it's been a while since I've had to think on this level) about the Linux networking stack, so great timing. There's actually a ton of good resources when you start looking for them.</p>
 <p><strong>Next</strong>: Probably a skosh more abstraction, then implement publish and subscribe as I talked about before.</p>
 <p>I think I want to do what I discussed above: have my own Uring abstraction where Requests can own a reference to it and then submit their own entries to the (internal) submission queue. Then the main loop just drives everything from there.</p>
-<h3 id="more-abstraction">10/10 More abstraction</h3>
+<h3 id="1010-more-abstraction">10/10 More abstraction</h3>
 <p>Refactored the implementation completely. My goal was to separate out any notion of Requests from the main event loop. I also didn't want to pass references to the Uring around to different users, so I went with a thread-local variable so that Connections could call <code>uring::submit(...)</code> from anywhere. That also makes the event loop simple as it doesn't have to think about pushing entries into its backlog.</p>
 <p>There's 3 main commits:</p>
 <p><a href="https://github.com/benhirsch24/iouring_bench/commit/8969bcd8c46ce1e3bd1a1bf4adc4f9804a986318">Move the event loop into its own file</a> - This just uses an anonymous function to create requests. I didn't like how I had to use a request trait and then Box it. This is also where I started with thread-local variables.</p>
@@ -377,7 +380,7 @@ pub fn submit(sqe) {
     let mut uring_ref = uring.borrow_mut();
     match uring_ref {
       Some(u) =&gt; u.submit(sqe),
-      None =&gt; panic!(&quot;aaa&quot;)
+      None =&gt; panic!("aaa")
     }
   });
 }
@@ -393,7 +396,7 @@ pub fn submit(sqe) {
       let mut uring_ref = &amp;mut *uring.get();
       match uring_ref {
         Some(u) =&gt; u.submit(sqe),
-        None =&gt; panic!(&quot;aaa&quot;)
+        None =&gt; panic!("aaa")
       }
     }
   });
@@ -424,7 +427,7 @@ uring::run(move |result, user_data, flags| {
     },
     Timeout =&gt; {
       let stats = uring::stats()?;
-      info!(&quot;Stats: {}&quot;, stats);
+      info!("Stats: {}", stats);
     },
   }
 });
@@ -432,7 +435,7 @@ uring::run(move |result, user_data, flags| {
 <p>I'm still semi-unhappy with this as I don't think the user of a library should have to define uses for opcodes like this... ideally maybe I could have <code>uring::set_timeout(|| do_timeout())</code> and then <code>uring::set_reader(...)</code>? I'll have to noodle on it.</p>
 <p>Or maybe I have a Server type which wraps the uring::run() call and then I provide something to Server? The most ideal of course would be an async runtime which is simplest, but of course runs into weirdness when you drop/cancel Futures.</p>
 <p>Anyways, my goal is not to make the perfectly useable library here, it's to benchmark shit and make lots of packets go.</p>
-<h3 id="pubsub-server">10/11 Writing Pubsub Server</h3>
+<h3 id="1011-writing-pubsub-server">10/11 Writing Pubsub Server</h3>
 <p>Let's get to making a PUB/SUB type system. First there's the protocol. I want to have it be super simple:</p>
 <ol>
 <li>Subscribe to channel</li>
@@ -454,7 +457,7 @@ uring::run(move |result, user_data, flags| {
 <p>The ultimate test of my "library" is if I could write a subscriber and publisher client with the library. That would be pretty sick.</p>
 <p>I also just realized I have no way of identifying closed sockets and removing them from the connection map. Gotta start a TODO list.</p>
 <p><a href="https://github.com/benhirsch24/iouring_bench/blob/main/PUBSUB.md">Added a "PUBSUB.md" file.</a></p>
-<h4>Worklog stream of thoughts on pubsub implementation</h4>
+<h4 id="worklog-stream-of-thoughts-on-pubsub-implementation">Worklog stream of thoughts on pubsub implementation</h4>
 <p>Parsing was pretty easy. I'm realizing that writing is going to be the hard bit.</p>
 <p>In my HTTP implementation I just have a single buffer in the Connection which gets a response set and then the send implementation is geard towards sending it all out.</p>
 <p>Now for pubsub I start to bifurcate. I want to send an <code>OK\r\n</code> as the response from each. That can just use the response buffer.</p>
@@ -479,7 +482,7 @@ uring::run(move |result, user_data, flags| {
 
 fn handle_conn(stream) {
     let line = stream.read_line().await?;
-    if line == &quot;PUBLISH&quot; {
+    if line == "PUBLISH" {
         handle_publish(stream)
     }
 }
@@ -504,7 +507,7 @@ fn handle_publish(stream) {
 <p>I think there's a better way to do this with BytesMut and Bytes, I need to get there. I could probably do something with <code>self.read_buffer.split_off</code>. Or I wonder if <code>bytes::Buf</code> could be useful? Something to look into.</p>
 <p>Bytes was actually very easy. I should go through and replace read buffer with it.</p>
 <p>I should also try to move every read and write over to the BufferPool. That would probably get me to a really good place for when I want to do kernel buffers. Then I'd check a buffer out of the pool for a read, check it back in when I'm done, and same with sends.</p>
-<h3 id="dogfooding">Cool test: Can I make a pubsub load test with my own library?</h3>
+<h3 id="cool-test-can-i-make-a-pubsub-load-test-with-my-own-library">Cool test: Can I make a pubsub load test with my own library?</h3>
 <p><code>Nc</code> is annoying me because it won't always close the socket for some reason <a href="https://stackoverflow.com/questions/53634911/why-does-sending-d-with-netcat-not-trigger-an-eof-when-reading-from-a-unix-sock">which is apparently a known issue</a>.</p>
 <p>I want to test that my pubsub implementation works. So to do that I want to:</p>
 <ol>
@@ -529,17 +532,17 @@ fn handle_publish(stream) {
 <li>On returned send close</li>
 </ol>
 <p>Would so much rather write</p>
-<pre><code>conn.send(&quot;PUBLISH ch\r\n&quot;);
+<pre><code>conn.send("PUBLISH ch\r\n");
 conn.read(&amp;mut buf);
 // check buf == OK
-conn.send(&quot;hello\r\n&quot;);
+conn.send("hello\r\n");
 conn.close()
 </code></pre>
 <p>Anyways, I actually got the publisher working pretty easily. I think the pattern of a Connection trait with <code>handle</code> as the only function and then a connections map is pretty simple. I shouldn't really even need all the shit I have in uring::run(...) in main right now, I should abstract it all away through a Server type that wraps uring::run. Something like that.</p>
 <p>Got a very simple send and receive working. I think the next thing would be to coordinate between publisher and subscriber to do what I was talking about above.</p>
-<h3>Popping up one level</h3>
+<h3 id="popping-up-one-level">Popping up one level</h3>
 <p>Ok so why did I go down this path: I want to see if I can get better performance gains for io_uring if I have a workload that can bundle many syscalls in one submission. One way I can test that out is with a fan-out pubsub system with many subscribers to few publishers. I should try to get to a point where I can test this theory as soon as possible.</p>
-<h3 id="callbacks">10/12 PubSub client with Callbacks</h3>
+<h3 id="1012-pubsub-client-with-callbacks">10/12 PubSub client with Callbacks</h3>
 <p>It's nice that this toy program works, but how to scale it up? Ideally I could parameterize and say N publishers with M subscribers per publisher.</p>
 <p>The other thing I was thinking about last night was extracting the pubsub server from my src/main.rs and then making this an actual library crate and having a src/bin/http_server.rs and src/bin/pubsub_server.rs. It would probably be much cleaner.</p>
 <p>Also this state machine handling gets very complex. I was thinking I could set up a callback system where I register callbacks to unique completion event IDs. Considering that the user data is a u64 I could register a callback into a global callback thingy and then start writing callbacks. EG:</p>
@@ -547,8 +550,8 @@ conn.close()
 
 fn main() {
     let mut map: HashMap&lt;u64, Box&lt;dyn FnOnce()&gt;&gt; = HashMap::new();
-    map.insert(0_u64, Box::new(|| println!(&quot;Hello&quot;)));
-    map.insert(1_u64, Box::new(|| println!(&quot;World&quot;)));
+    map.insert(0_u64, Box::new(|| println!("Hello")));
+    map.insert(1_u64, Box::new(|| println!("World")));
     map.remove(&amp;0_u64).unwrap()();
     map.remove(&amp;1_u64).unwrap()();
 }
@@ -612,7 +615,7 @@ impl CallbackRegistryInner {
         let cb = self.map.remove(&amp;id);
         match cb {
             Some(cb) =&gt; cb(res),
-            None =&gt; anyhow::bail!(&quot;No callback registered for {id} res={res}&quot;)
+            None =&gt; anyhow::bail!("No callback registered for {id} res={res}")
         }
     }
 }
@@ -649,7 +652,7 @@ impl CallbackRegistry {
 <pre><code>fn send_hi(&amp;mut self) -&gt; anyhow::Result&lt;()&gt; {
     let send_e = {
         let mut inner = self.inner.borrow_mut();
-        inner.send_buffer.put_slice(b&quot;PUBLISH ch\r\n&quot;);
+        inner.send_buffer.put_slice(b"PUBLISH ch\r\n");
         let ptr = inner.send_buffer.as_ptr();
         let to_send = inner.send_buffer.len();
         opcode::Send::new(types::Fd(inner.fd), ptr, to_send.try_into().unwrap())
@@ -658,7 +661,7 @@ impl CallbackRegistry {
         let inner = self.inner.clone();
         Box::new(move |res| {
             // TODO: What if send is bigger than res?
-            info!(&quot;Send completed! res={res}&quot;);
+            info!("Send completed! res={res}");
             let read_e = {
                 let mut inner = inner.borrow_mut();
                 let ptr = inner.read_buffer.as_mut_ptr();
@@ -669,19 +672,19 @@ impl CallbackRegistry {
                 Box::new(move |res: i32| {
                     let send_e = {
                         let mut inner = inner.borrow_mut();
-                        info!(&quot;Received res={res}&quot;);
+                        info!("Received res={res}");
                         let newlen: usize = inner.read_buffer.len() + (res as usize);
                         unsafe {
                             inner.read_buffer.set_len(newlen)
                         };
-                        let line = inner.read_line().expect(&quot;There should be one read by now&quot;);
-                        if line != &quot;OK\r\n&quot; {
-                            anyhow::bail!(&quot;Expected OK&quot;);
+                        let line = inner.read_line().expect("There should be one read by now");
+                        if line != "OK\r\n" {
+                            anyhow::bail!("Expected OK");
                         }
                         // Split removes anything that's been filled already. Put our message in
                         // to send instead.
                         let _ = inner.send_buffer.split();
-                        inner.send_buffer.put_slice(b&quot;hello\r\n&quot;);
+                        inner.send_buffer.put_slice(b"hello\r\n");
                         let ptr = inner.send_buffer.as_ptr();
                         let to_send = inner.send_buffer.len();
                         opcode::Send::new(types::Fd(inner.fd), ptr, to_send.try_into().unwrap())
@@ -689,7 +692,7 @@ impl CallbackRegistry {
                     let ud = add_callback({
                         let inner = inner.clone();
                         Box::new(move |_res| {
-                            info!(&quot;Done!&quot;);
+                            info!("Done!");
                             inner.borrow_mut().conn.shutdown(std::net::Shutdown::Both)?;
                             Ok(())
                         })
@@ -704,7 +707,7 @@ impl CallbackRegistry {
         })
     });
     uring::submit(send_e.build().user_data(ud))?;
-    info!(&quot;Sending hi ud={ud}&quot;);
+    info!("Sending hi ud={ud}");
     Ok(())
 }
 </code></pre>
@@ -715,27 +718,27 @@ let num_subscribers = 5;
 let dones = Rc::new(RefCell::new(num_subscribers));
 for _ in 0..num_subscribers {
     let dones = dones.clone();
-    let subscriber = TcpStream::connect(&quot;127.0.0.1:8080&quot;)?;
-    info!(&quot;Sending subscribe&quot;);
+    let subscriber = TcpStream::connect("127.0.0.1:8080")?;
+    info!("Sending subscribe");
     let mut send = BytesMut::with_capacity(1024);
-    send.put_slice(b&quot;SUBSCRIBE ch\r\n&quot;);
+    send.put_slice(b"SUBSCRIBE ch\r\n");
     let ptr = send.as_ptr();
     let n = send.len();
     let op = opcode::Send::new(types::Fd(subscriber.as_raw_fd()), ptr, n.try_into().unwrap());
     let ud = add_callback(move |res| {
         // Sending SUBSCRIBE completion
-        trace!(&quot;Sent subscribe res={res}&quot;);
+        trace!("Sent subscribe res={res}");
         let _ = send.split();
         let mut ok = BytesMut::with_capacity(1024);
         let ptr = ok.as_mut_ptr();
         let op = opcode::Recv::new(types::Fd(subscriber.as_raw_fd()), ptr, ok.capacity() as u32);
         let ud = add_callback(move |res| {
             // Expected OK receive completion
-            trace!(&quot;Recv res={res}&quot;);
+            trace!("Recv res={res}");
             unsafe { ok.set_len(res.try_into()?) };
-            let line = read_line(ok).expect(&quot;There should be one read by now&quot;);
-            if line != &quot;OK\r\n&quot; {
-                anyhow::bail!(&quot;Expected OK&quot;);
+            let line = read_line(ok).expect("There should be one read by now");
+            if line != "OK\r\n" {
+                anyhow::bail!("Expected OK");
             }
 
             let mut read = BytesMut::with_capacity(1024);
@@ -744,13 +747,13 @@ for _ in 0..num_subscribers {
             let ud = add_callback(move |res| {
                 // Expected message1 completion
                 if res &lt; 0 {
-                    anyhow::bail!(&quot;Got negative return from receive: {res} fd={}&quot;, subscriber.as_raw_fd());
+                    anyhow::bail!("Got negative return from receive: {res} fd={}", subscriber.as_raw_fd());
                 }
-                trace!(&quot;Received message res={res}&quot;);
+                trace!("Received message res={res}");
                 unsafe { read.set_len(res.try_into()?) };
-                let line = read_line(read).expect(&quot;There should be one message&quot;);
+                let line = read_line(read).expect("There should be one message");
                 let msg = std::str::from_utf8(line.as_ref())?;
-                info!(&quot;Subscriber received message {msg}&quot;);
+                info!("Subscriber received message {msg}");
                 *dones.borrow_mut() -= 1;
                 if *dones.borrow() == 0 {
                     uring::exit();
@@ -774,10 +777,13 @@ for _ in 0..num_subscribers {
         </div>
     </article>
     
+        </div>
+        
     </main>
 
     <footer>
         <p>© Ben Hirsch. Built with ♥️  by Claude Code.</p>
     </footer>
+    <script src="../js/main.js" defer></script>
 </body>
 </html>

@@ -17,7 +17,7 @@ body {
     background-color: var(--main-bg-color);
     color: var(--text-color);
     line-height: 1.6;
-    max-width: 800px;
+    max-width: 1100px;
     margin: 0 auto;
     padding: 1rem;
 }
@@ -74,6 +74,65 @@ main {
     gap: 2rem;
 }
 
+.post-layout {
+    display: grid;
+    grid-template-columns: 250px minmax(0, 1fr);
+    gap: 2rem;
+    align-items: flex-start;
+}
+
+.post-toc {
+    position: sticky;
+    top: 2rem;
+    max-height: calc(100vh - 3rem);
+    overflow: auto;
+    border-left: 3px solid #f1f1f1;
+    padding-left: 1rem;
+    font-size: 0.95rem;
+}
+
+.post-toc h2 {
+    margin-top: 0;
+    font-size: 1rem;
+    color: var(--accent-color);
+}
+
+.post-toc nav ol {
+    list-style: none;
+    padding-left: 0;
+}
+
+.post-toc li {
+    margin-bottom: 0.3rem;
+}
+
+.post-toc ol ol {
+    margin-left: 1rem;
+}
+
+.post-toc ol ol ol {
+    margin-left: 1rem;
+}
+
+.post-toc a {
+    color: #555;
+    text-decoration: none;
+    display: block;
+    padding: 0.2rem 0.4rem;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.post-toc a:hover {
+    background-color: #f3f3f3;
+}
+
+.post-toc li.active > a {
+    color: var(--accent-color);
+    background-color: rgba(90, 15, 128, 0.12);
+    font-weight: 600;
+}
+
 /* Post styling */
 .post {
     border-bottom: 1px solid #eee;
@@ -128,6 +187,12 @@ h1, h2, h3, h4, h5, h6 {
     font-size: 1.3rem;
     margin-top: 2rem;
     margin-bottom: 0.8rem;
+}
+
+.post-content h2,
+.post-content h3,
+.post-content h4 {
+    scroll-margin-top: 2rem;
 }
 
 .post-content > h1:first-child {
@@ -242,5 +307,19 @@ main > h2 {
     
     .post-content h2 {
         font-size: 1.4rem;
+    }
+}
+
+@media (max-width: 1000px) {
+    .post-layout {
+        grid-template-columns: 1fr;
+    }
+
+    .post-toc {
+        position: static;
+        max-height: none;
+        border-left: none;
+        border-top: 1px solid #eee;
+        padding: 1rem 0;
     }
 }

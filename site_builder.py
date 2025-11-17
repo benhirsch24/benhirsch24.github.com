@@ -106,7 +106,7 @@ def collect_headings(html_content):
     existing_ids.discard(None)
     headings = []
 
-    for tag in soup.find_all(['h2', 'h3']):
+    for tag in soup.find_all(['h2', 'h3', 'h4']):
         text = tag.get_text(strip=True)
         if not text:
             continue
@@ -118,19 +118,24 @@ def collect_headings(html_content):
 
 
 def build_toc_structure(headings):
-    """Build a nested list with h2 as parents and h3 as children."""
+    """Build a nested tree from heading list (supports h2-h4)."""
     toc = []
-    current_parent = None
+    stack = []  # track the current path of heading nodes
 
     for heading in headings:
-        if heading['level'] == 2:
-            current_parent = {'heading': heading, 'children': []}
-            toc.append(current_parent)
-        elif heading['level'] == 3:
-            if current_parent:
-                current_parent['children'].append(heading)
-            else:
-                toc.append({'heading': heading, 'children': []})
+        level = heading['level']
+        node = {'heading': heading, 'children': []}
+
+        # Pop until we find a parent with a lower level
+        while stack and stack[-1]['heading']['level'] >= level:
+            stack.pop()
+
+        if stack:
+            stack[-1]['children'].append(node)
+        else:
+            toc.append(node)
+
+        stack.append(node)
 
     return toc
 
@@ -140,31 +145,28 @@ def render_toc_html(toc_structure):
     if not toc_structure:
         return ''
 
+    def render_nodes(nodes):
+        parts = ['<ol>']
+        for node in nodes:
+            heading = node['heading']
+            heading_text = html.escape(heading['text'])
+            heading_id = heading['id']
+            parts.append(f"<li><a href='#{heading_id}'>{heading_text}</a>")
+            if node['children']:
+                parts.append(render_nodes(node['children']))
+            parts.append('</li>')
+        parts.append('</ol>')
+        return ''.join(parts)
+
     html_parts = [
         '<aside class="post-toc" aria-label="Table of contents">',
         '<h2>On this page</h2>',
-        '<nav><ol>'
+        '<nav>',
+        render_nodes(toc_structure),
+        '</nav>',
+        '</aside>',
     ]
 
-    for node in toc_structure:
-        heading = node['heading']
-        heading_text = html.escape(heading['text'])
-        heading_id = heading['id']
-        html_parts.append(
-            f"<li><a href='#{heading_id}'>{heading_text}</a>"
-        )
-        if node['children']:
-            html_parts.append('<ol>')
-            for child in node['children']:
-                child_text = html.escape(child['text'])
-                child_id = child['id']
-                html_parts.append(
-                    f"<li><a href='#{child_id}'>{child_text}</a></li>"
-                )
-            html_parts.append('</ol>')
-        html_parts.append('</li>')
-
-    html_parts.append('</ol></nav></aside>')
     return ''.join(html_parts)
 
 def format_date(date_str):

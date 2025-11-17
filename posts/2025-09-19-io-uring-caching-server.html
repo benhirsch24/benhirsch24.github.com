@@ -21,6 +21,9 @@
 
     <main>
         
+        <div class="post-layout">
+            <aside class="post-toc" aria-label="Table of contents"><h2>On this page</h2><nav><ol><li><a href='#summary-of-where-im-at'>Summary of where I&#x27;m at</a><ol><li><a href='#my-friend-chat-g'>My friend Chat G</a></li></ol></li><li><a href='#requirements'>Requirements</a></li><li><a href='#worklog'>Worklog</a><ol><li><a href='#setting-up-dev-environment-919'>Setting up dev environment 9/19</a></li><li><a href='#first-uring-program-919'>First Uring Program 9/19</a></li><li><a href='#slightly-more-advanced-read-and-respond-920'>Slightly more advanced: Read and Respond 9/20</a></li><li><a href='#serve-static-blob-922'>Serve static blob 9/22</a></li><li><a href='#early-load-tests'>Early load tests</a></li><li><a href='#comparisons-927'>Comparisons 9/27</a></li><li><a href='#next-fix-sending-code-928'>NEXT: Fix sending code 9/28</a><ol><li><a href='#aside'>Aside</a></li></ol></li><li><a href='#continuing-to-benchmark-929'>Continuing to benchmark 9/29</a></li><li><a href='#more-comparisons'>More comparisons</a></li></ol></li><li><a href='#more-challenges'>More challenges</a><ol><li><a href='#tokio-benchmarking'>Tokio benchmarking</a></li></ol></li><li><a href='#uring-benchmarking'>Uring benchmarking</a><ol><li><a href='#more-syscalls-by-writing-in-chunks'>More syscalls by writing in chunks</a><ol><li><a href='#chunk-size-4096'>Chunk size 4096</a></li></ol></li><li><a href='#930-refactoring'>9/30 Refactoring</a></li><li><a href='#930-back-to-profiling'>9/30 back to profiling</a><ol><li><a href='#1002-quick-aside-compare-to-glommio'>10/02 Quick aside: compare to glommio</a></li><li><a href='#going-back'>Going back</a></li></ol></li><li><a href='#wrapping-this-up'>Wrapping this up</a></li></ol></li></ol></nav></aside>
+            
     <article class="post">
         <h1 class="post-title">io_uring caching server worklog</h1>
         <div class="post-info">September 19, 2025</div>
@@ -30,7 +33,7 @@
 <p>If you're unfamiliar with <a href="https://man7.org/linux/man-pages/man7/io_uring.7.html">io_uring</a>: it's a Linux API for asynchronous I/O. The ideal is that you add requests to "do stuff" to a shared queue which the kernel reads from, the kernel then "does stuff", and once that stuff is done an event is placed on a different shared queue for you to know the result of the operation.  The idea here is that if you can batch enough work to the submission queue then you can avoid many costly syscalls.</p>
 <p>This is in contrast to something like epoll where you tell the kernel to watch a bunch of file descriptors, tell you which ones are ready, and then you issue syscalls to read/write from each ready file descriptor.</p>
 <p>Which of course was in contrast to spawning a thread or process per connection to watch a single file descriptor.</p>
-<h2>Summary of where I'm at</h2>
+<h2 id="summary-of-where-im-at">Summary of where I'm at</h2>
 <p>This post is intended to be a stream of consciousness for me to write in as I work through this problem. Here is a summary of where I'm at so far:</p>
 <p>I have example servers written in tokio, glommio, and <code>io_uring</code> in <a href="https://github.com/benhirsch24/iouring_bench">my bench repo</a> which serve a static asset (~1.3MB of text). Each of these are intentionally kept single-threaded for now. In this setup I can max out an EC2 instance c7g.8xlarge which has a 15Gbps NIC.</p>
 <p>To add more syscalls (which should be where uring shines) I started to play around with sending the asset in chunks (eg: 4096 bytes instead of writing the whole thing at once). Tokio actually pulled ahead in terms of using less CPU.</p>
@@ -45,7 +48,7 @@
 <li>Actually make it into a proxy server (maybe use nginx as the backend server)</li>
 <li>Make it into a file serving server (I hear tokio uses a thread pool for file reads while this wouldn't have to)</li>
 </ul>
-<h3>My friend Chat G</h3>
+<h3 id="my-friend-chat-g">My friend Chat G</h3>
 <p>I had a lot of chats with Mr C GPT to work through random things. I didn't want AI to figure it all out for me, but I do like to use it as a rubber-duck/interactive Google. Sometimes I felt like it wasn't at all helpful and we were going around in circles. I thought it would be fun to link some of these chats.</p>
 <ul>
 <li><a href="https://chatgpt.com/share/68e14853-22fc-800a-a992-5e6a9f63bfdf">Talking about SQPOLL</a></li>
@@ -56,7 +59,7 @@
 </li>
 <li><a href="https://chatgpt.com/share/68e1489b-f890-800a-8e66-3dc3b5d3be02">Submission queue depth</a></li>
 </ul>
-<h2>Requirements</h2>
+<h2 id="requirements">Requirements</h2>
 <p>This is meant to be a fan-out caching server.</p>
 <p>Routes:</p>
 <ul>
@@ -80,8 +83,8 @@
 <li>Optimize it a bit</li>
 <li>Optimize it a bit more</li>
 </ul>
-<h2>Worklog</h2>
-<h3>Setting up dev environment 9/19</h3>
+<h2 id="worklog">Worklog</h2>
+<h3 id="setting-up-dev-environment-919">Setting up dev environment 9/19</h3>
 <pre><code>limactl create --name=uring template://ubuntu-lts
 </code></pre>
 <p>Kept getting</p>
@@ -90,7 +93,7 @@ Notice: Updating from such a repository can't be done securely, and is therefore
 Notice: See apt-secure(8) manpage for repository creation and user configuration details.
 </code></pre>
 <p>When setting it up the way ChatGPT wanted me to with</p>
-<pre><code>limactl create --name=uring --set='.images[0].location=&quot;https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-arm64.img&quot;' ubuntu
+<pre><code>limactl create --name=uring --set='.images[0].location="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-arm64.img"' ubuntu
 </code></pre>
 <p>Codex wasn't any better. Codex did helpfully get the rw mount set up.</p>
 <p>Then ran a test which worked.</p>
@@ -101,16 +104,16 @@ Notice: See apt-secure(8) manpage for repository creation and user configuration
 int main() {
     struct io_uring ring;
     if (io_uring_queue_init(8, &amp;ring, 0) &lt; 0) {
-        perror(&quot;io_uring_queue_init&quot;);
+        perror("io_uring_queue_init");
         return 1;
     }
-    printf(&quot;io_uring ready.\n&quot;);
+    printf("io_uring ready.\n");
     io_uring_queue_exit(&amp;ring);
     return 0;
 }
 </code></pre>
 <p>Then we set up rust with rustup</p>
-<h3>First Uring Program 9/19</h3>
+<h3 id="first-uring-program-919">First Uring Program 9/19</h3>
 <ol>
 <li>Create listening socket (port 80)</li>
 <li>Submit an accept to kernel on submission queue</li>
@@ -122,28 +125,28 @@ int main() {
 use std::os::fd::AsRawFd;
 
 fn main() {
-    let mut uring = IoUring::new(32).expect(&quot;io_uring&quot;);
+    let mut uring = IoUring::new(32).expect("io_uring");
 
-    let listener = std::net::TcpListener::bind(&quot;127.0.0.1:80&quot;).expect(&quot;tcp listener&quot;);
+    let listener = std::net::TcpListener::bind("127.0.0.1:80").expect("tcp listener");
     let listener_fd = listener.as_raw_fd();
     let lfd = types::Fd(listener_fd);
     let mut sockaddr: libc::sockaddr = unsafe { std::mem::zeroed() };
     let mut addrlen: libc::socklen_t = std::mem::size_of::&lt;libc::sockaddr&gt;() as _;
     let accept_e = opcode::Accept::new(lfd, &amp;mut sockaddr, &amp;mut addrlen);
     unsafe {
-        uring.submission().push(&amp;accept_e.build().user_data(0x0e).into()).expect(&quot;first push&quot;);
+        uring.submission().push(&amp;accept_e.build().user_data(0x0e).into()).expect("first push");
     }
 
     loop {
-        uring.submit_and_wait(1).expect(&quot;saw&quot;);
+        uring.submit_and_wait(1).expect("saw");
         break;
     }
 
-    println!(&quot;Hello, world!&quot;);
+    println!("Hello, world!");
 }
 </code></pre>
 <p>Verify with <code>nc 127.0.0.1 80</code></p>
-<h3>Slightly more advanced: Read and Respond 9/20</h3>
+<h3 id="slightly-more-advanced-read-and-respond-920">Slightly more advanced: Read and Respond 9/20</h3>
 <p><a href="https://unixism.net/loti/tutorial/webserver_liburing.html">This is a super helpful (read: definitive) uring resource</a></p>
 <p>Also https://github.com/tokio-rs/io-uring/blob/master/io-uring-test/src/tests/net.rs</p>
 <ol>
@@ -156,20 +159,20 @@ fn main() {
 <li>Once that returns then remove the request from the map and close the fd</li>
 </ol>
 <p>The request parsing was quite annoying. I wanted to store the headers in the request object so that clients could send data gradually and it would keep parsing, but got caught up in borrow hell. After looking at the source https://docs.rs/httparse/latest/src/httparse/lib.rs.html#481 it seems like it re-parses each time anyways so that was pointless.</p>
-<h3>Serve static blob 9/22</h3>
+<h3 id="serve-static-blob-922">Serve static blob 9/22</h3>
 <p>Easiest way to start testing the egress capabilities which is really what we're trying to push. Super easy, just do a refcount around a hashmap and a static loaded file into it.</p>
-<h3>Early load tests</h3>
+<h3 id="early-load-tests">Early load tests</h3>
 <p>Decided to try out <a href="https://github.com/tsenart/vegeta">vegeta</a></p>
 <p>Simple command to start:</p>
-<pre><code>echo &quot;GET http://127.0.0.1:80/object/1&quot; | ./vegeta -cpus 1 attack -duration=10s | tee results.bin | ./vegeta report
+<pre><code>echo "GET http://127.0.0.1:80/object/1" | ./vegeta -cpus 1 attack -duration=10s | tee results.bin | ./vegeta report
 </code></pre>
-<h3>Comparisons 9/27</h3>
+<h3 id="comparisons-927">Comparisons 9/27</h3>
 <p>As a brief aside, let's prototype some comparisons with glommio and then serve a static 1KB file with nginx.</p>
 <p>Glommio is pretty straightforward. Obviously it's very nice that you can do async with it. You use their implementations of TcpStream and TcpListener which use io_uring under the hood.</p>
 <p>At some point I would want to reduce the number of allocations I do (always allocating 1KB request buffers on the heap). Re-use request objects or something.</p>
 <p>First little bench, but of course this is on a VM locally.</p>
 <p>Glommio:</p>
-<pre><code>ben@lima-uring:/Users/ben/iouring_cache/vegeta$ echo &quot;GET http://127.0.0.1:80/object/1&quot; | ./vegeta -cpus 1 attack -duration=10s | tee results.bin | ./vegeta report
+<pre><code>ben@lima-uring:/Users/ben/iouring_cache/vegeta$ echo "GET http://127.0.0.1:80/object/1" | ./vegeta -cpus 1 attack -duration=10s | tee results.bin | ./vegeta report
 Requests      [total, rate, throughput]         500, 50.10, 50.09
 Duration      [total, attack, wait]             9.982s, 9.98s, 2.494ms
 Latencies     [min, mean, 50, 90, 95, 99, max]  624.684µs, 3.317ms, 1.225ms, 3.398ms, 6.724ms, 57.548ms, 107.352ms
@@ -191,7 +194,7 @@ Error Set:
 </code></pre>
 <p>First EC2 tests, I'm using a c7g.medium for my load test client which offers "up to 12.5Gbps". This means that you may be able to burst up to 12.5Gbps but realistically you'll get throttled if you go above for too long.</p>
 <p>io_uring:</p>
-<pre><code>[ssm-user@client ~]$ echo &quot;GET http://172.31.16.182:8080/object/1&quot; | ./vegeta -cpus 1 attack -duration=10s -rate=100/1s | tee results.bin | ./vegeta report
+<pre><code>[ssm-user@client ~]$ echo "GET http://172.31.16.182:8080/object/1" | ./vegeta -cpus 1 attack -duration=10s -rate=100/1s | tee results.bin | ./vegeta report
 Requests      [total, rate, throughput]         1000, 100.10, 0.00
 Duration      [total, attack, wait]             9.992s, 9.99s, 1.956ms
 Latencies     [min, mean, 50, 90, 95, 99, max]  1.445ms, 2.142ms, 2.017ms, 2.697ms, 2.733ms, 2.785ms, 2.993ms
@@ -231,13 +234,13 @@ unexpected EOF
 </code></pre>
 <p>Nope, ok, let's stop. Also FYI: you can't strace io_uring because of course the only syscall you'll see is <code>io_uring_enter</code> :')</p>
 <p>If someone wants to inform me how to do this that would be great. Just for my own knowledge. Otherwise I'll have to dig through Linux source code or something.</p>
-<h3>NEXT: Fix sending code 9/28</h3>
+<h3 id="next-fix-sending-code-928">NEXT: Fix sending code 9/28</h3>
 <p>Trying to do this before my wife gets up :)</p>
 <p>Wrote a very straightforward way of sending all the data but it looks like using a String is biting me in the butt when doing slicing with Unicode. I used ChatGPT (I know) to generate a bunch of text, but of course being AI, it added a bunch of Unicode llamas. So when it writes data but has to slice within a Unicode character the Rust String slicing code complains (as it should). I'd probably want to make this content-type application/bytes (which I should to send video anyways).</p>
 <p>I ended up converting the String to a <code>bytes::Bytes</code> and slicing it like that which feels much more ergonomic and works.</p>
 <p><em>Interesting</em>: Normally for syscall errors the function returns -1 and the error code is appropriately set. For iouring instead the negated error code is returned. So for example, I've been getting an error -32. This is because I was curling the server with <code>curl -v address | head</code> so of course it only reads the first 10 lines then hangs up. Looked into it and 32 is the return code for <code>EPIPE</code> which makes sense - the other end hung up.</p>
 <p>Of course if I had read the io uring man page I'd see this was called out.</p>
-<h4>Aside</h4>
+<h4 id="aside">Aside</h4>
 <p>For a while (eh 1-2 hours maybe?) I was testing the <code>/health</code> endpoint and slamming my head against the wall as to why the server was only sending 40 bytes. Why why why? Then I finally realized that was the health endpoint vegeta was testing. So here's some notes from a fool:</p>
 <p>Hmm bytes in is 14,000? Only 20 bytes per request?</p>
 <pre><code>[2025-09-28T04:32:13Z DEBUG iouring_cache] Responded! 5 40
@@ -247,7 +250,7 @@ unexpected EOF
 <p>Let's enable GSO and see what happens. Oh wait GSO was enabled already.</p>
 <p>SHIT I was testing /health. Damn, wasted an hour working from 9-10pm while my wife was sleeping with the baby. I could have actually been productive lol. What happens when I do the right endpoint?</p>
 <p>glommio:</p>
-<pre><code>[ssm-user@client ~]$ echo &quot;GET http://172.31.16.182:8080/object/1&quot; | ./vegeta -cpus 1 attack -duration=10s -rate=100/1s | tee results.bin | ./vegeta report
+<pre><code>[ssm-user@client ~]$ echo "GET http://172.31.16.182:8080/object/1" | ./vegeta -cpus 1 attack -duration=10s -rate=100/1s | tee results.bin | ./vegeta report
 Requests      [total, rate, throughput]         1000, 100.10, 0.00
 Duration      [total, attack, wait]             9.991s, 9.99s, 1.509ms
 Latencies     [min, mean, 50, 90, 95, 99, max]  1.007ms, 1.653ms, 1.567ms, 2.243ms, 2.298ms, 2.347ms, 2.452ms
@@ -270,7 +273,7 @@ unexpected EOF
 </code></pre>
 <p>Ok this looks much better. It's not the whole thing, but it's not 40 bytes. Going back to the previous section for this worklog.
 <code>[2025-09-28T05:09:00Z DEBUG iouring_cache] Responded! 5 331318</code></p>
-<h3>Continuing to benchmark 9/29</h3>
+<h3 id="continuing-to-benchmark-929">Continuing to benchmark 9/29</h3>
 <p>Starting to benchmark more. Fixed the same negative return syscall problem.</p>
 <p>At 100rps it's working well. That's doing ~1Gbps already.</p>
 <p>Issues I hit:</p>
@@ -297,7 +300,7 @@ unexpected EOF
 <p>At 750rps it seemed fine. I had to turn off body capturing because it would fill the disk, I will have to revisit this. But all requests were successful.</p>
 <p>At 1000rps for 10s we had one failure. Let's run for 60s. This suspiciously works... Should we just go for it? No, let's run for like 10 minutes and see the metrics appear on CloudWatch. <code>1000rps = 8*1345292 ~= 10Gbps</code></p>
 <p>And... that worked? That easy?</p>
-<pre><code>[ssm-user@ip-172-31-18-153 ~]$ echo &quot;GET http://172.31.16.182:8080/object/1&quot; | ./vegeta attack -duration=600s -rate=1000/1s -max-body=0 | tee results.bin | ./vegeta reportRequests      [total, rate, throughput]         600000, 1000.00, 1000.00Duration      [total, attack, wait]             10m0s, 10m0s, 1.943msLatencies     [min, mean, 50, 90, 95, 99, max]  1.196ms, 1.914ms, 1.873ms, 2.198ms, 2.341ms, 2.848ms, 232.304msBytes In      [total, mean]                     0, 0.00
+<pre><code>[ssm-user@ip-172-31-18-153 ~]$ echo "GET http://172.31.16.182:8080/object/1" | ./vegeta attack -duration=600s -rate=1000/1s -max-body=0 | tee results.bin | ./vegeta reportRequests      [total, rate, throughput]         600000, 1000.00, 1000.00Duration      [total, attack, wait]             10m0s, 10m0s, 1.943msLatencies     [min, mean, 50, 90, 95, 99, max]  1.196ms, 1.914ms, 1.873ms, 2.198ms, 2.341ms, 2.848ms, 232.304msBytes In      [total, mean]                     0, 0.00
 Bytes Out     [total, mean]                     0, 0.00Success       [ratio]                           100.00%
 Status Codes  [code:count]                      200:600000
 Error Set:
@@ -314,7 +317,7 @@ Error Set:
      bw_out_allowance_exceeded: 44654442
 </code></pre>
 <p>Let's back this off to 1250rps.</p>
-<pre><code>[ssm-user@ip-172-31-18-153 ~]$ echo &quot;GET http://172.31.16.182:8080/object/1&quot; | ./vegeta attack -duration=600s -rate=1250/1s -max-body=0 | tee results.bin | ./vegeta report
+<pre><code>[ssm-user@ip-172-31-18-153 ~]$ echo "GET http://172.31.16.182:8080/object/1" | ./vegeta attack -duration=600s -rate=1250/1s -max-body=0 | tee results.bin | ./vegeta report
 Requests      [total, rate, throughput]         750000, 1250.00, 1250.00
 Duration      [total, attack, wait]             10m0s, 10m0s, 2.082ms
 Latencies     [min, mean, 50, 90, 95, 99, max]  1.163ms, 1.97ms, 1.89ms, 2.249ms, 2.409ms, 2.957ms, 30s
@@ -323,12 +326,12 @@ Bytes Out     [total, mean]                     0, 0.00
 Success       [ratio]                           100.00%
 Status Codes  [code:count]                      0:1  200:749999
 Error Set:
-Get &quot;http://172.31.16.182:8080/object/1&quot;: context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+Get "http://172.31.16.182:8080/object/1": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
 </code></pre>
 <p>No problem. We hit ~13.5Gbps. CPU hit 3% max on the EC2 metrics, but I saw ~60% with top for the process (note there's 32 vCPUs). Next: 1350rps.</p>
 <p>1350 seems to have maxed it out right at 14.7Gbps which is the instance limit. Pretty cool to see it done with 1 thread and with basically no errors. Curious to know how a more naive implementation would perform. <code>psrecord</code> says that we stayed right around 42 CPU% and ~25MB virtual memory.</p>
-<p><img alt="Cloudwatch graph of EC2 instance metrics" src="/images/1350rps-iouring-9-28.png" title="1350 RPS" /></p>
-<pre><code>[ssm-user@ip-172-31-18-153 ~]$ echo &quot;GET http://172.31.16.182:8080/object/1&quot; | ./vegeta attack -duration=600s -rate=1350/1s -max-body=0 | tee results.bin | ./vegeta report
+<p><img alt="Cloudwatch graph of EC2 instance metrics" src="/images/1350rps-iouring-9-28.png" title="1350 RPS"/></p>
+<pre><code>[ssm-user@ip-172-31-18-153 ~]$ echo "GET http://172.31.16.182:8080/object/1" | ./vegeta attack -duration=600s -rate=1350/1s -max-body=0 | tee results.bin | ./vegeta report
 Requests      [total, rate, throughput]         810001, 1350.00, 1350.00
 Duration      [total, attack, wait]             10m0s, 10m0s, 1.915ms
 Latencies     [min, mean, 50, 90, 95, 99, max]  1.142ms, 1.946ms, 1.898ms, 2.254ms, 2.433ms, 3.073ms, 253.962ms
@@ -338,12 +341,12 @@ Success       [ratio]                           100.00%
 Status Codes  [code:count]                      200:810001
 Error Set:
 </code></pre>
-<h3>More comparisons</h3>
+<h3 id="more-comparisons">More comparisons</h3>
 <p>I just want to make sure I understand <strong>the value</strong> of io_uring in this context. Let's make a super basic equivalent with tokio (which has an epoll backend I believe) and one thread.</p>
 <p>I used <code>tokio::runtime::Builder</code> to make a new current thread with <code>enable_io</code> and then I used a <code>tokio::task::LocalSet</code> to use <code>tokio::task::spawn_local</code> so I could continue using the <code>Rc&lt;HashMap&lt;...&gt;&gt;</code>. If I didn't do that then <code>tokio::spawn</code> would require the Future to be <code>Send</code> which would have meant doing <code>Arc&lt;Mutex&lt;HashMap&lt;...&gt;&gt;&gt;</code> which would introduce a lock, not the same thing as I have been doing.</p>
 <p>Luckily after doing all that it just worked (tm) and I basically copied the glommio code I had written over. That's certainly the nice thing about having code that implements <code>AsyncReadExt / AsyncWriteExt</code> is that it's far more portable than the crud I've been writing to work with uring at a low level.</p>
 <p>Let's test.</p>
-<pre><code>[ssm-user@ip-172-31-18-153 ~]$ echo &quot;GET http://172.31.16.182:8080/object/1&quot; | ./vegeta attack -duration=120s -rate=1350/1s -max-body=0 | tee results.bin | ./vegeta report
+<pre><code>[ssm-user@ip-172-31-18-153 ~]$ echo "GET http://172.31.16.182:8080/object/1" | ./vegeta attack -duration=120s -rate=1350/1s -max-body=0 | tee results.bin | ./vegeta report
 Requests      [total, rate, throughput]         162001, 1350.01, 1349.99
 Duration      [total, attack, wait]             2m0s, 2m0s, 2.376ms
 Latencies     [min, mean, 50, 90, 95, 99, max]  1.147ms, 2.004ms, 1.922ms, 2.402ms, 2.637ms, 3.358ms, 242.98ms
@@ -354,10 +357,10 @@ Status Codes  [code:count]                      200:162001
 Error Set:
 </code></pre>
 <p>Tokio is honestly about the same. Slightly higher latencies across the board but by microseconds. Probably means that 15Gbps is just not that big of a deal AND that we're not doing enough syscalls...</p>
-<h2>More challenges</h2>
+<h2 id="more-challenges">More challenges</h2>
 <p>What if we dramatically increase the number of syscalls? So for example in HLS Low Latency we're doing chunked-transfer encoding. Basically as each frame is produced by the transcoder it is writing that to the origin which writes it to any connections currently open for the object. Basically it's a big pub-sub system. So what if we wrote this file out in chunks? The situation I described of course has more of a timing element to it (each chunk of the video would be produced in 16ms intervals for 60fps).</p>
 <p>I went with <code>2^14 = 16384</code> byte chunks which will be ~60 writes per serve.</p>
-<h3>Tokio benchmarking</h3>
+<h3 id="tokio-benchmarking">Tokio benchmarking</h3>
 <p>Amusingly that immediately redlined the tokio implementation at 1350rps whereas it used to be no problem. And the server died lol. Oh I think I wrote an infinite looping bug as it's redlining after one curl call.</p>
 <p>Let's try that again.o</p>
 <p>100rps is fine:</p>
@@ -404,7 +407,7 @@ Error Set:
 <pre><code>[2025-09-30T01:03:13Z ERROR tokio] Did nto write all Broken pipe (os error 32)
 [2025-09-30T01:03:13Z ERROR tokio] Did nto write all Broken pipe (os error 32)
 </code></pre>
-<h2>Uring benchmarking</h2>
+<h2 id="uring-benchmarking">Uring benchmarking</h2>
 <p>Ok let's do the iouring at 300rps</p>
 <pre><code>00:44:53     1001      3543    6.00   26.00    0.00    1.00   32.00     1  iouring_cache
 00:44:54     1001      3543    5.00   26.00    0.00    1.00   31.00    10  iouring_cache
@@ -487,7 +490,7 @@ Error Set:
 04:37:44     1001      3542   27.00   18.00    0.00    0.00   45.00    17  iouring_cache
 </code></pre>
 <p>Cut it short:</p>
-<pre><code>[ssm-user@ip-172-31-18-153 ~]$ echo &quot;GET http://172.31.16.182:8080/object/1&quot; | ./vegeta attack -duration=360s -rate=1300/1s -max-body=0 | tee results.bin | ./vegeta report
+<pre><code>[ssm-user@ip-172-31-18-153 ~]$ echo "GET http://172.31.16.182:8080/object/1" | ./vegeta attack -duration=360s -rate=1300/1s -max-body=0 | tee results.bin | ./vegeta report
 ^CRequests      [total, rate, throughput]         133056, 1300.02, 1299.99
 Duration      [total, attack, wait]             1m42s, 1m42s, 1.702ms
 Latencies     [min, mean, 50, 90, 95, 99, max]  1.164ms, 1.889ms, 1.854ms, 2.183ms, 2.338ms, 2.898ms, 21.862ms
@@ -510,9 +513,9 @@ Error Set:
 04:40:37     1001      3656    9.00   36.00    0.00    0.00   45.00    27  tokio
 </code></pre>
 <p>Pretty comparable. It's interesting, tokio is clearly spending much more time in the %system while uring is doing more in usr. But the same amount of CPU (roughly) overall. I wonder what would happen if I change the chunk size? (I should parameterize this) Basically I'm wondering when uring would start to beat tokio.</p>
-<h3>More syscalls by writing in chunks</h3>
+<h3 id="more-syscalls-by-writing-in-chunks">More syscalls by writing in chunks</h3>
 <p>Now, instead of writing the whole file (1.3M bytes) as quickly as possible by passing the whole buffer to <code>write</code> I'm writing it in chunks.</p>
-<h4>Chunk size 4096</h4>
+<h4 id="chunk-size-4096">Chunk size 4096</h4>
 <p>Tokio, chunk size of 4096, 1300rps:</p>
 <pre><code>04:43:40      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
 04:43:41     1001      3797   20.00   53.00    0.00    0.00   73.00    13  tokio
@@ -556,11 +559,11 @@ Error Set:
 <p>I also started looking at what <code>SQPOLL</code> would take. This <a href="https://blog.cloudflare.com/missing-manuals-io_uring-worker-pool/">CloudFlare article</a> is pretty great. Also the <a href="https://unixism.net/loti/tutorial/sq_poll.html">Lord of the Uring</a> one as well of course. Basically it would spawn a kernel thread (a thread that runs in kernel space) that busy polls the submission queue so the user application doesn't have to call <code>io_uring_enter</code>.</p>
 <p>The downside is that if you don't submit enough work within some timeout that you define (say 2ms) then the kernel thread will exit and you need to re-start it by calling <code>io_uring_enter</code>. So there would be some active management logic to deal with that. It's something I want to play with in the future for sure.</p>
 <p>I think the next thing I'd definitely want to do is do some code cleanup, abstraction, and parameterize so I can experiment quicker.</p>
-<h3>9/30 Refactoring</h3>
+<h3 id="930-refactoring">9/30 Refactoring</h3>
 <p>My goal with the refactoring is to abstract away the uring-bits from the request processing bits.</p>
 <p>I don't want to make some super-generic routing server thing with middleware, this is intentionally low-level. But I think moving the iouring loop out of main and then having mostly just the Request processing be in main seems pretty reasonable.</p>
 <p>Ok tbh refactoring is too hard when I have 30 minutes before my son's bath time and he woke me up 3 times last night so my abstract thinking is awful.</p>
-<h3>9/30 back to profiling</h3>
+<h3 id="930-back-to-profiling">9/30 back to profiling</h3>
 <p>I was trying to dig more in with perf and flame graphs. Found this workflow:</p>
 <p>On EC2</p>
 <pre><code>sudo perf record -F 199 -g --call-graph dwarf -p &lt;pid&gt; -- sleep 30
@@ -575,7 +578,7 @@ s3 cp out.data s3://mybucket
 open flamegraph.svg
 </code></pre>
 <p>Looks like we're spending most of the time in <code>submit_and_wait</code>. But I thought the whole point is that we wouldn't do that too often? Maybe I can increase the batch size at the expense of more latency. Added a log to metric outputs and it shows the same thing.</p>
-<h4>10/02 Quick aside: compare to glommio</h4>
+<h4 id="1002-quick-aside-compare-to-glommio">10/02 Quick aside: compare to glommio</h4>
 <p>Let's compare to glommio which is an io uring implementation (probably better than mine) and see if there's much difference</p>
 <pre><code>04:02:52     1001      3989   22.00   47.00    0.00    0.00   69.00     0  glommio
 04:02:53     1001      3989   30.00   38.00    0.00    0.00   68.00     0  glommio
@@ -586,7 +589,7 @@ open flamegraph.svg
 </code></pre>
 <p>Actually not really.</p>
 <p>Mine seems to push so much more into syscalls.</p>
-<h4>Going back</h4>
+<h4 id="going-back">Going back</h4>
 <p>Tried using Claude to debug a bit and help.</p>
 <p>I tried out SQPOLL which actually wasn't too hard to do.</p>
 <pre><code>05:59:34     1001      8021    9.00  144.00    0.00    0.00  153.00     5  iouring_cache
@@ -600,7 +603,7 @@ open flamegraph.svg
 05:59:42     1001      8021   11.00  140.00    0.00    0.00  151.00     8  iouring_cache
 05:59:43     1001      8021   13.00  140.00    0.00    0.00  153.00     8  iouring_cache
 </code></pre>
-<h3>Wrapping this up</h3>
+<h3 id="wrapping-this-up">Wrapping this up</h3>
 <p>Ok I'm going to wrap this up for now and put it on the blog. The next things I'd do:</p>
 <ul>
 <li>Add multi-shot accept</li>
@@ -611,10 +614,13 @@ open flamegraph.svg
         </div>
     </article>
     
+        </div>
+        
     </main>
 
     <footer>
         <p>© Ben Hirsch. Built with ♥️  by Claude Code.</p>
     </footer>
+    <script src="../js/main.js" defer></script>
 </body>
 </html>

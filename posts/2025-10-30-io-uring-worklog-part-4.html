@@ -21,6 +21,9 @@
 
     <main>
         
+        <div class="post-layout">
+            <aside class="post-toc" aria-label="Table of contents"><h2>On this page</h2><nav><ol><li><a href='#work-log'>Work log</a><ol><li><a href='#load-testing-client'>Load Testing client</a><ol><li><a href='#got-it-working-1021'>Got it working 10/21</a></li></ol></li><li><a href='#tps-problems'>TPS problems</a><ol><li><a href='#what-about-now'>What about now</a></li></ol></li></ol></li></ol></nav></aside>
+            
     <article class="post">
         <h1 class="post-title">IO Uring worklog part 4</h1>
         <div class="post-info">October 30, 2025</div>
@@ -37,8 +40,8 @@
 </ul>
 <p>Anyways, now that I feel pretty good about both my async implementation and the client and server I can get back to load testing. I'll have to implement the same thing in Tokio of course to get an apples to apples comparison.</p>
 <p>By the by, I found this old boats post about <a href="https://without.boats/blog/why-async-rust/">Why async Rust?</a> which literally covers the journey I went on through writing this async runtime, which I find very funny.</p>
-<h2>Work log</h2>
-<h3>Load Testing client</h3>
+<h2 id="work-log">Work log</h2>
+<h3 id="load-testing-client">Load Testing client</h3>
 <p>Writing the <code>connect</code> future legitimately took longer than writing the client itself.</p>
 <pre><code>    pub fn connect&lt;A: ToSocketAddrs&gt;(addr: A) -&gt; ConnectFuture {
         let op_id = executor::get_next_op_id();
@@ -52,9 +55,9 @@
         let len = os_socket_addr.len();
         let opcode = opcode::Connect::new(types::Fd(fd), ptr, len);
         executor::schedule_completion(op_id, false);
-        trace!(&quot;Scheduling connect completion for op={op_id} fd={} task_id={}&quot;, fd, executor::get_task_id());
+        trace!("Scheduling connect completion for op={op_id} fd={} task_id={}", fd, executor::get_task_id());
         if let Err(e) = uring::submit(opcode.build().user_data(op_id)) {
-            log::error!(&quot;Error submitting connect: {e}&quot;);
+            log::error!("Error submitting connect: {e}");
         }
         ConnectFuture { op_id, addr: os_socket_addr, fd }
     }
@@ -63,13 +66,13 @@
 <p>Because we're doing io_uring the <code>*const struct sockaddr</code> needs to be valid until the completion event comes back. You can't allocate it on the stack in the connect function as that memory is gone when you return. You can't put it in ConnectFuture on the stack and point it to that address for the same reason. So you have to Box it up into the ConnectFuture.</p>
 <p>Took me a while to figure out that Socket was closing the socket on drop. It would return successfully and my runtime machinery looked right, but writing to it would say it was a bad file descriptor. I ran <code>strace</code> and saw that it was clearly being closed before the uring was entered which is what I suspected, that <code>socket2::Socket</code> was closing it on drop. I kept looking at <a href="https://docs.rs/socket2/latest/src/socket2/socket.rs.html">the source</a> and couldn't find any <code>impl Drop</code> until I found that <code>sys::Socket</code> is a <a href="https://docs.rs/socket2/latest/src/socket2/sys/unix.rs.html#862">type alias to an OwnedFd</a> which TIL what an OwnedFd is. Makes sense, easy fix with <code>IntoRawFd</code> and hopefully I'll remember that for the future.</p>
 <p>I saw <a href="https://news.ycombinator.com/item?id=45653350">post on Hacker News about a fast web server</a> which pointed me to <a href="https://docs.rs/monoio/latest/monoio/">monoio</a>, a Rust crate which uses io_uring (or epoll). Looks like it's built by ByteDance, I'll have to take a look at the code later to see how they do things.</p>
-<h4>Got it working 10/21</h4>
+<h4 id="got-it-working-1021">Got it working 10/21</h4>
 <p>There was a particularly hairy bug with how I was handling the futures returned by <code>poll_read</code> or <code>poll_write</code>. I was having the future immediately take the op id out of the Option&lt;&gt; in the TcpStream, but that meant that the first time it was polled before the completion event fired it would return pending BUT there was no result yet. <a href="https://claude.ai/share/b83401a9-871e-417e-9ce5-8231d0ed76fe">I had a long chat with Claude</a> which was semi-helpful. It got a lot of things wrong, but I was able to rubber duck with it enough to get to the right answer myself. It's good at knowing a lot of things, but not knowing my program. Part of me wonders if I'm giving up brain power to it for things like this, but I actually think chatting with it like this helped me debug by explaining myself to it. It definitely <strong>did not</strong> get it correct just by me copy pasting code in.</p>
 <p>Also first game of the NBA season, Lakers baby!</p>
 <p>Next up I have to deal with borrowing an <code>Rc&lt;RefCell&lt;HashMap&lt;...&gt;&gt;&gt;</code> across a Future <code>.await</code> point. I'm re-discovering all the classic problems that you run into when writing an async runtime, I've totally read other blog posts and comments of people talking about these exact problems. Maybe I'll end up writing channels to deal with this. I could probably pretty easily write an spmc future that checks whether the message was polled by all the consumers. Or something like that, idk. Will figure it out.</p>
 <p>I just got around it by a shitty, dumb method: because I create TcpStreams by fd all over the place, I just copied all the Fds and remade the TcpStreams lol. This is not a production framework at all, this is for my own enjoyment (weird enjoyment tbh).</p>
 <p>Once I started benchmarking it on my Mac on a VM I noticed that at 5 publishers with 50 subscribers each and 50TPS for publishers my program starts to slow down and the TPS creeps down to ~10. When I ran pidstat I found that it's spending almost 100% of time in userspace. Doing a perf record and flamegraph gave me the following SVG (does this embed?):</p>
-<p><img alt="Flamegraph of lots of polls" src="/images/flamegraph-polls.svg" /></p>
+<p><img alt="Flamegraph of lots of polls" src="/images/flamegraph-polls.svg"/></p>
 <p>That's a lot of polling. Also my server eventually does stack overflow, so there must be something I'm doing weird with it...</p>
 <p>Oh! I think because I'm doing</p>
 <pre><code>for s in streams {
@@ -103,7 +106,7 @@ Each .await in a loop creates a new state in the generated state machine, and wi
 </code></pre>
 <p>Which makes sense. I'll have to spend some more time understanding how async sugaring works later.</p>
 <p>This potentially loses the ordering of writes, maybe. Everything is pretty orderly in that tasks get woken up, placed on the back of the queue, then we work our way front to back. It would still potentially make sense to have a task with a channel per subscriber that receives messages in order and writes to the underlying socket, but again I don't want to await each message to fully write, I just want to queue it up. I think.</p>
-<h3>TPS problems</h3>
+<h3 id="tps-problems">TPS problems</h3>
 <p>Now I'm seeing that we're not always getting 50 TPS per subscriber. It's usually around ~40-45. Also there's always a few errors at the start.</p>
 <p>Once I started adding debugging I noticed that the server is only ever receiving messages for one publisher.</p>
 <p>Adding logging mostly took place on 10/21, then I went to NYC. My 3 month old son did great on the plane. Then I came back on 10/27 and basically figured out the issue.</p>
@@ -131,18 +134,18 @@ Each .await in a loop creates a new state in the generated state machine, and wi
 <p>Where tasks 4 and 7 were both my publisher tasks and a result of 30 meant it received my message <code>here is my message Channel_N\r\n</code>. Task 4 got processed for <code>Channel_1</code>, but then the next time there was a task switch it went to 9 instead.</p>
 <p>This was due to a bug in my ready_queue handling. This seems to be because I was draining the vector and using it in the iterator like this:</p>
 <pre><code>    fn handle_ready_queue(&amp;mut self) {
-        trace!(&quot;Ready queue len {}: {:?}&quot;, self.ready_queue.len(), self.ready_queue);
+        trace!("Ready queue len {}: {:?}", self.ready_queue.len(), self.ready_queue);
         for task_id in self.ready_queue.drain(..) {
             set_task_id(task_id);
-            trace!(&quot;Set task_id={task_id}&quot;);
+            trace!("Set task_id={task_id}");
             if let Some(mut task) = self.tasks.remove(&amp;task_id) {
                 let mut ctx = Context::from_waker(Waker::noop());
                 match task.as_mut().poll(&amp;mut ctx) {
                     Poll::Ready(_) =&gt; {
-                        trace!(&quot;Task {task_id} complete&quot;);
+                        trace!("Task {task_id} complete");
                     },
                     Poll::Pending =&gt; {
-                        trace!(&quot;Task still pending {task_id}&quot;);
+                        trace!("Task still pending {task_id}");
                         self.tasks.insert(task_id, Box::pin(task));
                     },
                 }
@@ -152,19 +155,19 @@ Each .await in a loop creates a new state in the generated state machine, and wi
 </code></pre>
 <p>The fix was to drain the queue first, then iterate like this:</p>
 <pre><code>    fn handle_ready_queue(&amp;mut self) {
-        trace!(&quot;Ready queue len {}: {:?}&quot;, self.ready_queue.len(), self.ready_queue);
+        trace!("Ready queue len {}: {:?}", self.ready_queue.len(), self.ready_queue);
         let tasks: Vec&lt;u64&gt; = self.ready_queue.drain(..).collect();
         for task_id in tasks {
             set_task_id(task_id);
-            trace!(&quot;Set task_id={task_id}&quot;);
+            trace!("Set task_id={task_id}");
             if let Some(mut task) = self.tasks.remove(&amp;task_id) {
                 let mut ctx = Context::from_waker(Waker::noop());
                 match task.as_mut().poll(&amp;mut ctx) {
                     Poll::Ready(_) =&gt; {
-                        trace!(&quot;Task {task_id} complete&quot;);
+                        trace!("Task {task_id} complete");
                     },
                     Poll::Pending =&gt; {
-                        trace!(&quot;Task still pending {task_id}&quot;);
+                        trace!("Task still pending {task_id}");
                         self.tasks.insert(task_id, Box::pin(task));
                     },
                 }
@@ -174,7 +177,7 @@ Each .await in a loop creates a new state in the generated state machine, and wi
 </code></pre>
 <p>It seems like there is <a href="https://doc.rust-lang.org/src/alloc/vec/mod.rs.html#2771-2773">lots of unsafe code in the drain iterator implementation</a> where it's basically creating pointers into the vec data. But when I poll tasks I'm also adding data into the ready_queue vector; that combined with my usage of UnsafeCell means the drain iterator ends up seeing a new task that's ready and some of my tasks get missed.</p>
 <p>Simple fix in the end that was easy to debug, it just took getting ~1 hour of free time on the couch (kinda impossible on a plane with an infant unfortunately).</p>
-<h4>What about now</h4>
+<h4 id="what-about-now">What about now</h4>
 <p>There's still some hairy issue deep in there (ew). One: I'm not getting 25TPS with 2 publishers and 2 subscribers and that surprises me. And it's always off by like 1 message per second. I would not expect that 25TPS is a limit even on a VM. Two: When I went up to 5 publishers, 25 TPS, 25 subscribers per publisher I ran into Channel 3 and Channel 4 getting starved again. So there's still some sort of concurrency bug that manifests at scale.</p>
 <p>Ugh but debugging this is a pain because there'll be so many logs... I need to develop something to parse them. Probably something could be vibe coded, idk. I haven't vibe coded almost anything for this project because it feels like I need to actually understand what I'm building end-to-end, and if I let AI do anything then I'll end up unloading context. I probably should make a program that helps debug this, but again this isn't a production library it's fun. Or something. Idk why I'm still working on this but it's enjoyable.</p>
 <p>I started debugging anyways even if it's annoying and it's 10pm and I should go to sleep soon. I think this is timeout implementation related on the client side, the issue is no longer in the server side. Once I went through trace logs I noticed that timeouts stopped firing for the tasks that stopped writing.</p>
@@ -197,17 +200,20 @@ Each .await in a loop creates a new state in the generated state machine, and wi
 <p>Between that and fixing my TPS calculation we're now achieving the TPS I'm expecting.</p>
 <p><a href="https://github.com/benhirsch24/iouring_bench/commit/95959c0d0017ee613e26860d731f4a211a8e9ae5">Here's the commit that fixed the things</a></p>
 <p>Here's before:</p>
-<p><img alt="Before removing extra pin" src="/images/iouring-2025-10-29-tps-debugging.svg" /></p>
+<p><img alt="Before removing extra pin" src="/images/iouring-2025-10-29-tps-debugging.svg"/></p>
 <p>And here's after:</p>
-<p><img alt="After removing extra pin" src="/images/iouring-2025-10-30-no-more-pins.svg" /></p>
+<p><img alt="After removing extra pin" src="/images/iouring-2025-10-30-no-more-pins.svg"/></p>
 <p>Now, if necessary, I can start to pick off more higher hanging fruit like the HashMaps I'm using to store timespecs, or how I'm allocating Tasks. But it is cool to remove such big bottlenecks!</p>
         </div>
     </article>
     
+        </div>
+        
     </main>
 
     <footer>
         <p>© Ben Hirsch. Built with ♥️  by Claude Code.</p>
     </footer>
+    <script src="../js/main.js" defer></script>
 </body>
 </html>

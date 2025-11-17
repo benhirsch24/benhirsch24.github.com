@@ -21,6 +21,9 @@
 
     <main>
         
+        <div class="post-layout">
+            <aside class="post-toc" aria-label="Table of contents"><h2>On this page</h2><nav><ol><li><a href='#table-of-contents'>Table of Contents</a></li><li><a href='#worklog'>Worklog</a><ol><li><a href='#1013---spooky-season'>10/13 - Spooky season</a><ol><li><a href='#load-testing'>Load testing</a></li></ol></li><li><a href='#good-pattern---net-contaienr'>Good pattern - net contaienr</a></li><li><a href='#1017-comparable-frameworks'>10/17 Comparable frameworks</a></li><li><a href='#going-async'>Going async</a></li><li><a href='#1019'>10/19</a></li><li><a href='#implementation-done'>Implementation Done?</a></li></ol></li></ol></nav></aside>
+            
     <article class="post">
         <h1 class="post-title">Uring worklog 3</h1>
         <div class="post-info">October 19, 2025</div>
@@ -28,53 +31,53 @@
             <p>At this point I have a working pubsub server built on io_uring with an async runtime which you can find as of <a href="https://github.com/benhirsch24/iouring_bench/commit/17441ac4c35b6b65502581267f43e87082e71372">this commit</a>.</p>
 <p>This ended up being the way to go to write actual programs based on io_uring the easiest. At the end of the day it took me about one weekend (in between kid stuff, on-call work stuff, working out) to write a full async runtime (with the help of Claude for socratic support). I detail how I use AI in the worklog of course.</p>
 <p>Next up I can finally get back to benchmarking. I definitely think I'm allocating too much and too often but of course, you have to let profiling guide you where to go.</p>
-<h2>Table of Contents</h2>
+<h2 id="table-of-contents">Table of Contents</h2>
 <p><a href="#callbacks">Callbacks</a> - Before I went down the async path I was trying to do everything with callbacks like Javascript used to do for async. This just got too unwieldy especially when you want to break things out into functions and pass around self. I eventually just abandoned it.</p>
 <p><a href="#deep-thoughts">Deep thoughts on coding new code</a> - Some thoughts I jotted down about how to design new code modules. Note that I totally threw all this code away, I was trying to write BufferPools, I think because I was struggling with the self references moving into callbacks I described above. I wanted to have Buffers with lifetimes outside of the callbacks. Ultimately registering completion events to Futures is the easier way.</p>
 <p><a href="#research">Research on other frameworks</a> - I did some research on other popular frameworks, reading through the documentation for Seastar (a C++ high performance framework) and the source code for Glommio and Tokio. This was helpful. Seastar does callbacks, but the type system for C++ is a little more permissive than Rust's.</p>
 <p><a href="#async">Going async</a> - Here's the meat of where I went async. I didn't really write too much about what I was struggling with because at this point I was talking to Claude (<a href="https://claude.ai/share/ad2d1f01-d8d3-43c6-a0a6-26f9b91912e2">conversation</a>) to figure out my strategy. I found Claude to be very helpful in discussing the ideas and as a rubber-duck; often I'd first use it as a Google I can talk to, it would understand the problem but it's answer doesn't quite capture my full context, then by re-confirming its mistakes and my assumptions iteratively I can understand the problem space more. That was poorly phrased, read the conversation I think it's pretty straightforward.</p>
 <p>I also listed the commits for the async work. I'd like to turn this itself into a blog post at some point.</p>
 <p>Finally, back to benchmarking! Maybe in a couple weeks, I have a short week at work and then a wedding to attend.</p>
-<h2>Worklog</h2>
-<h3 id="callbacks">10/13 - Spooky season</h3>
+<h2 id="worklog">Worklog</h2>
+<h3 id="1013---spooky-season">10/13 - Spooky season</h3>
 <p>13th day of October? We are officially in spooky season.</p>
 <p>Removed the Publisher struct and now it's just callbacks. It's a little annoying to have to write it all in <code>main</code> to deal with the lifetimes of the Bytes/BytesMut buffers. If I put them in their own function then I run into the issue of the function returning (as it's just registering a callback) and then the memory doesn't live long enough, but that may be how I'm using it since the bytes should be heap allocated.  This is probably a good time to implement a global buffer pool.</p>
 <p>Ah yep, lifetime is what it was.</p>
 <p>See if you can spot the difference between what works and doesn't? This works:</p>
 <pre><code>fn publish(fd: RawFd) -&gt; anyhow::Result&lt;()&gt; {
     let mut send_buffer = BytesMut::with_capacity(4096);
-    send_buffer.put_slice(b&quot;PUBLISH ch\r\n&quot;);
+    send_buffer.put_slice(b"PUBLISH ch\r\n");
     let ptr = send_buffer.as_ptr();
     let to_send = send_buffer.len();
-    debug!(&quot;Publisher sending&quot;);
+    debug!("Publisher sending");
     let send_e = opcode::Send::new(types::Fd(fd), ptr, to_send.try_into().unwrap());
     let ud = add_callback(move |res| {
         let _s = send_buffer;
         // TODO: What if send is bigger than res?
-        info!(&quot;Publisher PUBLISH completed res={res}&quot;);
+        info!("Publisher PUBLISH completed res={res}");
         let mut read_buffer = BytesMut::with_capacity(4096);
         let ptr = read_buffer.as_mut_ptr();
         let read_e = opcode::Recv::new(types::Fd(fd), ptr, read_buffer.capacity() as u32);
         let ud = add_callback(move |res: i32| {
-            debug!(&quot;Publisher OK recv={res}&quot;);
+            debug!("Publisher OK recv={res}");
             let newlen: usize = read_buffer.len() + (res as usize);
             unsafe {
                 read_buffer.set_len(newlen)
             };
-            let line = read_line(read_buffer).expect(&quot;There should be one read by now&quot;);
-            if line != &quot;OK\r\n&quot; {
-                anyhow::bail!(&quot;Expected OK&quot;);
+            let line = read_line(read_buffer).expect("There should be one read by now");
+            if line != "OK\r\n" {
+                anyhow::bail!("Expected OK");
             }
-            debug!(&quot;Publisher received ok&quot;);
+            debug!("Publisher received ok");
 
             let mut send_buffer = BytesMut::with_capacity(4096);
-            send_buffer.put_slice(b&quot;hello\r\n&quot;);
+            send_buffer.put_slice(b"hello\r\n");
             let ptr = send_buffer.as_ptr();
             let to_send = send_buffer.len();
             let send_e = opcode::Send::new(types::Fd(fd), ptr, to_send.try_into().unwrap());
             let ud = add_callback(move |_res| {
                 let _s = send_buffer;
-                info!(&quot;Publisher sent message res={res}&quot;);
+                info!("Publisher sent message res={res}");
                 Ok(())
             });
             uring::submit(send_e.build().user_data(ud.into()))?;
@@ -91,36 +94,36 @@
 <p>and this doesn't:</p>
 <pre><code>fn publish(fd: RawFd) -&gt; anyhow::Result&lt;()&gt; {
     let mut send_buffer = BytesMut::with_capacity(4096);
-    send_buffer.put_slice(b&quot;PUBLISH ch\r\n&quot;);
+    send_buffer.put_slice(b"PUBLISH ch\r\n");
     let ptr = send_buffer.as_ptr();
     let to_send = send_buffer.len();
-    debug!(&quot;Publisher sending&quot;);
+    debug!("Publisher sending");
     let send_e = opcode::Send::new(types::Fd(fd), ptr, to_send.try_into().unwrap());
     let ud = add_callback(move |res| {
         // TODO: What if send is bigger than res?
-        info!(&quot;Publisher PUBLISH completed res={res}&quot;);
+        info!("Publisher PUBLISH completed res={res}");
         let mut read_buffer = BytesMut::with_capacity(4096);
         let ptr = read_buffer.as_mut_ptr();
         let read_e = opcode::Recv::new(types::Fd(fd), ptr, read_buffer.capacity() as u32);
         let ud = add_callback(move |res: i32| {
-            debug!(&quot;Publisher OK recv={res}&quot;);
+            debug!("Publisher OK recv={res}");
             let newlen: usize = read_buffer.len() + (res as usize);
             unsafe {
                 read_buffer.set_len(newlen)
             };
-            let line = read_line(read_buffer).expect(&quot;There should be one read by now&quot;);
-            if line != &quot;OK\r\n&quot; {
-                anyhow::bail!(&quot;Expected OK&quot;);
+            let line = read_line(read_buffer).expect("There should be one read by now");
+            if line != "OK\r\n" {
+                anyhow::bail!("Expected OK");
             }
-            debug!(&quot;Publisher received ok&quot;);
+            debug!("Publisher received ok");
 
             let mut send_buffer = BytesMut::with_capacity(4096);
-            send_buffer.put_slice(b&quot;hello\r\n&quot;);
+            send_buffer.put_slice(b"hello\r\n");
             let ptr = send_buffer.as_ptr();
             let to_send = send_buffer.len();
             let send_e = opcode::Send::new(types::Fd(fd), ptr, to_send.try_into().unwrap());
             let ud = add_callback(move |_res| {
-                info!(&quot;Publisher sent message res={res}&quot;);
+                info!("Publisher sent message res={res}");
                 Ok(())
             });
             uring::submit(send_e.build().user_data(ud.into()))?;
@@ -135,7 +138,7 @@
 }
 </code></pre>
 <p>Just adding a <code>let _s = send_buffer;</code> in the callback keeps the BytesMut alive and allocated so the pointer stays valid for the syscall.</p>
-<h4>Load testing</h4>
+<h4 id="load-testing">Load testing</h4>
 <p>I think I'm going to try to set up the scaffolding for load testing N publishers -&gt; M subscribers next.</p>
 <p>You always find way more interesting issues when you start introducing load tests. Like what if a publisher sends more than 1 message? Maybe that will be a problem when your buffer pool is an association between channels and buffers and everything is async. Maybe you could have more than one buffer per channel in flight? Crazy talk.</p>
 <p>Coming back to the state machine code for the pubsub server is extremely hard to read through. It would be so much better in the callback style, even if it was just doing:</p>
@@ -177,7 +180,7 @@ submit_entry(read_entry, move || {
       submit_entry(send, move || {
         // Make sure buf stays alive at least this long.
         // Ok buf was sent
-        println!(&quot;Done!&quot;);
+        println!("Done!");
         // after last reference pool frees buf
         pool.done(buf);
       })?;
@@ -229,7 +232,7 @@ impl Buffer {
     {
         let ptr = self.bytes.as_ptr();
         let op = opcode::Send::new(types::Fd(fd), ptr, self.bytes.len() as u32);
-        log::info!(&quot;send bytes: {}&quot;, self.bytes.len());
+        log::info!("send bytes: {}", self.bytes.len());
         let ud = add_callback(move |res| {
             f(self, res)
         });
@@ -292,36 +295,36 @@ impl BufferPoolInner {
 <p>But it looks like BytesMut::clone is a deep copy, not a refcount. Which makes sense, can't have two refcounts to a mutable buffer.</p>
 <p>While I was doing a Peloton ride I was thinking that putting recv/send on the Buffer doesn't make much sense, so I'll try to wrap the TCP Conn in it instead. That way I just pass the BytesMut itself into the callback which makes more sense.</p>
 <p>Is highlighting my failures useful in a worklog like this? Idk. Hopefully maybe to someone (or myself).</p>
-<h3>Good pattern - net contaienr</h3>
+<h3 id="good-pattern---net-contaienr">Good pattern - net contaienr</h3>
 <p>As I described in the previous section it turns out that putting the responsibility for the reads/sends on the TcpStream itself is much better (obviously). It starts to feel a little more like the actual TcpStream. Turns out the people who are working on Rust are pretty smart.</p>
 <p>Also major props to anyone who writes a full server from scratch. There is so much to think about when you start getting into it.</p>
 <p>One thing I'm running into is code like this:</p>
-<pre><code>let listener = unet::TcpListener::bind(&quot;0.0.0.0:8080&quot;).expect(&quot;tcp listener&quot;);
+<pre><code>let listener = unet::TcpListener::bind("0.0.0.0:8080").expect("tcp listener");
 listener.accept(move |fd| {
     let stream = unet::TcpStream::new(fd);
-    println!(&quot;Accepted&quot;);
+    println!("Accepted");
     let mut protocol = vec![0u8; 1024];
     stream.recv(protocol.as_mut_ptr(), protocol.capacity(), move |res| {
-        info!(&quot;Protocol res={res}&quot;);
+        info!("Protocol res={res}");
         let msg = std::str::from_utf8(protocol.as_ref()).unwrap();
-        info!(&quot;Got msg {msg}&quot;);
-        if protocol.starts_with(b&quot;PUBLISH&quot;) {
-            info!(&quot;Publisher&quot;);
-            // TODO: What if there's more data in the buffer than just &quot;PUBLISH ch\r\n&quot; ?
+        info!("Got msg {msg}");
+        if protocol.starts_with(b"PUBLISH") {
+            info!("Publisher");
+            // TODO: What if there's more data in the buffer than just "PUBLISH ch\r\n" ?
             send_ok_and_then(stream, |res| {
                 let channel = parse_channel(protocol)?;
-                info!(&quot;Publisher sent ok channel={channel}&quot;);
+                info!("Publisher sent ok channel={channel}");
                 relay_messages(stream);
                 Ok(())
             })?;
-        } else if protocol.starts_with(b&quot;SUBSCRIBE&quot;) {
+        } else if protocol.starts_with(b"SUBSCRIBE") {
             send_ok_and_then(stream, |res| {
-                info!(&quot;Subscriber sent ok&quot;);
+                info!("Subscriber sent ok");
                 Ok(())
             })?;
         } else {
-            send_error_and_then(stream, &quot;not a valid protocol&quot;.into(), |res| {
-                info!(&quot;And then done&quot;);
+            send_error_and_then(stream, "not a valid protocol".into(), |res| {
+                info!("And then done");
                 Ok(())
             })?;
         }
@@ -366,7 +369,7 @@ fn do_message(buffer: BytesMut, res: i32) {
 </code></pre>
 <p>I guess that's not too bad? Probably since everything I have is based on lines delimited by carriage returns I just want some sort of <code>read_line</code> function that then finally calls a callback once it has a line.</p>
 <p>That implies I probably want something that has an internal buffer to buffer many bytes... sigh. I'm definitely re-inventing so many things right now but I don't really want to read other people's code just yet (or ask ChatGPT/Claude to actually code for me yet).</p>
-<h3 id="research">10/17 Comparable frameworks</h3>
+<h3 id="1017-comparable-frameworks">10/17 Comparable frameworks</h3>
 <p>Busy week at work + busy personal week meant no personal work time.</p>
 <p>I did spend a couple of nights reading through some code for <a href="https://docs.seastar.io/master/tutorial.html#introducing-seastars-network-stack">Seastar</a> which is a C++ framework for thread per core high performance applications, and glommio which is a Rust framework built around <code>io_uring</code> and has its own async framework.</p>
 <p>Seastar has a very similar style to what I've been writing. For example this server:</p>
@@ -393,38 +396,38 @@ fn do_message(buffer: BytesMut, res: i32) {
 </code></pre>
 <p>Each async call returns a future which is chained with <code>.then(...)</code> which takes a callback. The future, when ready, passes the results to the callback.</p>
 <p>Started implementing a buffered reader. Now that I look at the Seastar example I think that could be an easier intermediate step between what I've got now and the full async runtime. Plumbing the callback to each function is very annoying when I could instead return a Future (but I wouldn't call it a future to not conflict when I bring futures in, I'll call it an <code>Urture</code>) and then chain results with <code>.then(...)</code>. Will think about doing that maybe Sunday if I have time.</p>
-<h3 id="async">Going async</h3>
+<h3 id="going-async">Going async</h3>
 <p>I went down the path of writing my own futures to clean things up like I said... but then I went fuck it, I'm going to write an async runtime. I think I've been dancing around it long enough and I think it shouldn't be that bad to do the bare minimum to get things working.</p>
 <p>It's 10:45pm and I'm a little bleary eyed, I have to be on a war room tomorrow as the on-call for a customer's large event (yes, even as a Principal Engineer I stay on the rotation), but 15 minutes of coding can't hurt.</p>
-<h3>10/19</h3>
+<h3 id="1019">10/19</h3>
 <p>I spent some of yesterday and a bit of today working on my async runtime. I used Claude as a rubberduck / teacher which I thought really helped. <a href="https://claude.ai/share/ad2d1f01-d8d3-43c6-a0a6-26f9b91912e2">Here's my conversation</a>.</p>
 <p>Now I don't think that Claude could have written my runtime for me. I had to do a lot of back and forth, both for my own understanding (it was actually pretty good at telling me where and why I was wrong with some assumptions) but it also made a lot of simple mistakes that I could catch and clarify with it.</p>
 <p>Without Claude I probably would have had to read more code from tokio or smol-rs or glommio to understand how to set up an async runtime. I could learn like that (and I still did quite a bit of that), but in a certain sense Claude, having been trained on the internet/GitHub, is essentially remixing the patterns that it understands from these established async runtimes so I'm learning by proxy. Or something like that.</p>
 <p>Implemented AsyncRead and AsyncWrite for TcpStream. Once I did that, I was able to just <code>use futures::{AsyncReadExt, AsyncWriteExt}</code> and it all just worked. I have an example program working like this:</p>
 <pre><code>    executor::spawn(Box::pin(async {
-        let mut listener = unet::TcpListener::bind(&quot;0.0.0.0:8080&quot;).unwrap();
+        let mut listener = unet::TcpListener::bind("0.0.0.0:8080").unwrap();
         loop {
             let task_id = executor::get_task_id();
-            info!(&quot;Accepting&quot;);
+            info!("Accepting");
             let mut stream = listener.accept_multi_fut().await.unwrap();
             executor::spawn(Box::pin(async move {
                 let task_id = executor::get_task_id();
-                info!(&quot;Got stream {} for {task_id}&quot;, stream.as_raw_fd());
+                info!("Got stream {} for {task_id}", stream.as_raw_fd());
                 loop {
                     let mut buf = [0u8; 1024];
-                    let n = stream.read(&amp;mut buf).await.expect(&quot;Read buf&quot;);
-                    info!(&quot;Read {n} from stream&quot;);
+                    let n = stream.read(&amp;mut buf).await.expect("Read buf");
+                    info!("Read {n} from stream");
                     if n == 0 {
-                        info!(&quot;Stream done&quot;);
+                        info!("Stream done");
                         return;
                     }
 
-                    let response = &quot;hello to you too\r\n&quot;;
+                    let response = "hello to you too\r\n";
                     let mut written = 0;
                     while written &lt; response.len() {
-                        let n = stream.write(response.as_bytes()).await.expect(&quot;Write&quot;);
+                        let n = stream.write(response.as_bytes()).await.expect("Write");
                         written += n;
-                        info!(&quot;Wrote {n}&quot;);
+                        info!("Wrote {n}");
                     }
                 }
             }));
@@ -444,7 +447,7 @@ fn do_message(buffer: BytesMut, res: i32) {
 <p>Here I added a thread local global variable for the current task id. Now the executor calling code doesn't have to come up with a task ID when scheduling operations or tasks, it can just "do it" and the executor will handle the details. Also the multi accept works because I added a bool into the hash map to keep that state.</p>
 <p><a href="https://github.com/benhirsch24/iouring_bench/commit/96fb1eef5e86b1495e36bb166f5552346602f659">AsyncRead and AsyncWrite</a></p>
 <p>Pretty easy once you get the hang of it. I don't think I need a flush implementation (can always revisit). Also translating from the raw os error to a Result is nice. But this just made me realize that res is negative so I need to fix that real quick.</p>
-<h3>Implementation Done?</h3>
+<h3 id="implementation-done">Implementation Done?</h3>
 <p>Wow is my pubsub implementation done? It took me a couple more hours to do today but I think so.</p>
 <p><a href="https://github.com/benhirsch24/iouring_bench/commit/abc9e7cd54391c6102451d521af0ce27b110d42d">Timeouts</a></p>
 <p>The timeouts implementation was a little weird because you have to have a pointer to a Timespec living somewhere and obviously if you have a TimeoutFuture that gets consumed that's only valid once.</p>
@@ -455,10 +458,13 @@ fn do_message(buffer: BytesMut, res: i32) {
         </div>
     </article>
     
+        </div>
+        
     </main>
 
     <footer>
         <p>© Ben Hirsch. Built with ♥️  by Claude Code.</p>
     </footer>
+    <script src="../js/main.js" defer></script>
 </body>
 </html>

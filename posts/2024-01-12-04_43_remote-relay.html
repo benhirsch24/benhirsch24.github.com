@@ -21,6 +21,9 @@
 
     <main>
         
+        <div class="post-layout">
+            <aside class="post-toc" aria-label="Table of contents"><h2>On this page</h2><nav><ol><li><a href='#architecture'>Architecture</a></li><li><a href='#modularizing'>Modularizing</a><ol><li><a href='#checking-my-work'>Checking my work</a></li></ol></li><li><a href='#infrastructure-management'>Infrastructure Management</a><ol><li><a href='#cdk-aside'>CDK Aside</a></li><li><a href='#ok-were-back'>Ok we&#x27;re back</a></li></ol></li><li><a href='#rust-pusher'>Rust Pusher</a><ol><li><a href='#note-on-async-code-style'>Note on Async Code Style</a></li><li><a href='#actual-s3-pushing-code'>Actual S3 Pushing code</a></li></ol></li></ol></nav></aside>
+            
     <article class="post">
         <h1 class="post-title">Remote Relay</h1>
         <div class="post-info">2024-01-12 04:43</div>
@@ -34,9 +37,9 @@
 <li>Plug in Raspberry Pi at the back of my house overlooking the yard.</li>
 <li>View temperature on my phone from anywhere I have internet.</li>
 </ol>
-<h2>Architecture</h2>
+<h2 id="architecture">Architecture</h2>
 <p>This led to a pretty simple architecture just to start:</p>
-<p><img alt="" src="images/2024-01-12-04_43_remote-relay-arch.png" /></p>
+<p><img alt="" src="images/2024-01-12-04_43_remote-relay-arch.png"/></p>
 <ul>
 <li>The Raspberry Pi connects to the Combustion</li>
 <li>It pulls the latest data every N seconds and uploads every X seconds (N and X to be fiddled with constantly)</li>
@@ -49,10 +52,10 @@
 <p>While getting the Raspberry Pi up and running has been fun, it's slow as hell to develop on. That could be because I'm using a 16GB SD card which is running at the edge of its capacity (Rust dependencies seem to take up a ton of space) or because it's underpowered, but one of the first things I wanted to do was code on my Mac.</p>
 <p>The Rust crate I'm using (<a href="https://docs.rs/bluer/latest/bluer/">bluer</a>) won't compile on Mac because it depends on a DBus crate which links to the DBus system libraries which don't exist on Macs! Bluez is the official Linux bluetooth stack, and DBus is used for communicating between Linux daemons - this won't work for Mac dev.</p>
 <p>Therefore I needed to write some implementation that I could compile and run on my Mac dev laptop for when I don't feel like running the Raspberry Pi (eg: when I'm on the couch downstairs). This could be a dummy program that generates some data and uploads it to S3 in the expected format.</p>
-<h2>Modularizing</h2>
+<h2 id="modularizing">Modularizing</h2>
 <p>The obvious thing (to me) would be to write some type class (or an interface in Go, which is what I write in my day job) that either the Mac or Linux versions could implement. But that still comes across the issue that I can't compile the DBus/Bluer libraries on the Mac!</p>
 <p>I worked around this issue by using conditional compilation. In Rust files you can write</p>
-<pre><code>#[cfg(target_os=&quot;linux&quot;)]
+<pre><code>#[cfg(target_os="linux")]
 mod mymod {
 ...
 }
@@ -103,11 +106,11 @@ mod mymod {
 <p>I went with a <code>CombustionFinder</code> which (in the Linux version) creates the <code>bluer::Session</code> and gets the <code>session.default_adapter()</code>. It has one async function to discover the device which is expected to run and keep scanning the ether until either it returns the device or an error. I'm using the <a href="https://docs.rs/anyhow">anyhow</a> library which is super easy to use. I think in a binary program it makes things super easy--I don't know if I'd use it if I was publishing a crate, but in the end application it's super useful.</p>
 <p>The device is a <code>Combustion</code> struct. This can <code>connect</code> to the device (verifying the device in the process), it can <code>get_raw_temp</code> to do exactly that, and it can <code>disconnect</code> which is self explanatory.</p>
 <p>The Linux implementation is just the code from my last blog post adapted into the struct. The initial Mac implementation just returned a static value stored in the Combustion struct.</p>
-<h3>Checking my work</h3>
+<h3 id="checking-my-work">Checking my work</h3>
 <p>Another tricky thing was how make the dependency available only on Linux. It's not <em>my</em> code that has the problem, it's <em>theirs</em> (bluez/dbus). For that I modified the Cargo.toml file (removing the dependencies from the main section).</p>
-<pre><code>[target.'cfg(target_os = &quot;linux&quot;)'.dependencies]
-bluer = { version = &quot;0.16.1&quot;, features = [&quot;full&quot;] }
-modular-bitfield = &quot;0.11.2&quot;
+<pre><code>[target.'cfg(target_os = "linux")'.dependencies]
+bluer = { version = "0.16.1", features = ["full"] }
+modular-bitfield = "0.11.2"
 </code></pre>
 <p>I don't know why, but that took me literally <strong>ages</strong> to figure out. It seems fairly obvious in the <a href="https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#platform-specific-dependencies">Cargo specification</a> but I guess it wasn't working for me for some reason. But I figured it out eventually.</p>
 <p>Once I got it working on my Mac I had to make sure it would work in Linux too. For that I created a Dockerfile.</p>
@@ -116,31 +119,31 @@ modular-bitfield = &quot;0.11.2&quot;
 RUN apt-get update
 RUN apt-get install gcc xz-utils wget curl -y
 RUN apt-get install libdbus-1-dev libglib2.0-dev libudev-dev libical-dev libreadline-dev -y
-WORKDIR &quot;/tmp&quot;
+WORKDIR "/tmp"
 RUN wget https://mirrors.edge.kernel.org/pub/linux/bluetooth/bluez-5.69.tar.xz
 RUN tar xf bluez-5.69.tar.xz
-WORKDIR &quot;/tmp/bluez-5.69&quot;
+WORKDIR "/tmp/bluez-5.69"
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | bash -s -- -y
 RUN echo 'source $HOME/.cargo/env' &gt;&gt; $HOME/.bashrc
 
 VOLUME /rustbustion
-WORKDIR &quot;/&quot;
+WORKDIR "/"
 
 # udev issue
 
-CMD [&quot;echo&quot;, &quot;hello world&quot;]
+CMD ["echo", "hello world"]
 </code></pre>
 <p>It's pretty simple. I haven't looked at this in a while, I guess what I wanted to do with the <code>echo "hello world"</code> as the entry command is because I was mostly using it by <code>docker run &lt;imageid&gt; --rm --it /bin/bash</code> and then compiling the code within the created docker container. It took a while to figure out all of the dependencies and get them installed, but once I did I was able to successfully compile the app! Trying to run it obviously failed; while the bluetooth library might exist on the Debian container running virtualized on my Mac I don't think VirtualBox understands how to translate from the Linux OS bluetooth service to my Mac bluetooth interface. Maybe someone has figured that out, I really didn't care.</p>
 <p>Eventually I did figure out how to <a href="https://github.com/benhirsch24/rustbustion/pull/1/commits/da6a40363d1f9c66ef5bac4c81778e4367334655">move the Linux/Mac code into their own files fairly elegantly in this commit</a>.</p>
 <h1>S3 Bucket Creation and Pushing</h1>
-<h2>Infrastructure Management</h2>
+<h2 id="infrastructure-management">Infrastructure Management</h2>
 <p>Like I said I wanted this to be dead simple and created with technologies I understand. I'm not trying to learn a whole bunch of things (although that might come naturally), I just want to get the damn thing working.</p>
 <p>So with that said I reached for my personal preferred infrastructure as code library: Amazon CDK. Reader, I cannot tell you how much this has improved cloud software development life at Amazon. Pre-CDK managing our infrastructure was with CloudFormation and our deployment infrastructure was with Ruby scripts (ew). Now it's all Typescript which has documentation, and types, and documentation! and types!</p>
-<h3>CDK Aside</h3>
+<h3 id="cdk-aside">CDK Aside</h3>
 <p>I like CloudFormation a lot, more than terraform. I like the idea of deploying a Stack in AWS that presumably has an understanding of the state of my infrastructure so that I can apply a change and have it figure out both how to mutate the infrastructure to get to that state AND MOST IMPORTANTLY if something fails how to mutate the infrastructure back (mostly) safely.</p>
 <p>Terraform is great but it feels like a big foot-gun where it can fail and I don't know the state of things. I've also had less-than-stellar experiences working on a single Terraform codebase with multiple other developers. I'm sure organizations can do it successfully, I haven't experienced that.</p>
-<h3>Ok we're back</h3>
+<h3 id="ok-were-back">Ok we're back</h3>
 <p>The thing is that even though I like CDK as a concept, I don't want to write a whole lot of it in my free time. Instead I turned to my good friend ChatGPT. I sent just a few terse chats to it:</p>
 <pre><code>Me: CDK code to create: an S3 bucket, an EC2 instance with an IAM role that allows it to read from the S3 bucket, and an IAM user
 
@@ -158,17 +161,17 @@ ChatGPT: (does it)
 <p>This gave me just a typescript file, after this I still had to set up CDK on my dev laptop, create a new CDK project, and import the file into it. So I had to open up <code>vim</code> for a little bit. But it was fairly easy.</p>
 <p>The CDK does what I said to ChatGPT: it creates a bucket that I can define with a value on the command line (I also suffixed it with <code>-combustion</code> because S3 buckets need to be globally unique I believe), an EC2 instance with an instance role that can pull from the bucket, and an IAM user that can access the bucket which will be used by the Raspberry Pi.</p>
 <p>For local AWS credentials I created an access key/secret for my root user (usually don't do this but it's my laptop) and put those creds under a profile in <code>~/.aws/credentials</code>. First you bootstrap your AWS account for CDK and then you deploy your CDK code:</p>
-<pre><code>$ cdk --profile=&lt;me&gt; bootstrap --context name=&quot;myname&quot;
-$ cdk --profile=&lt;me&gt; deploy --context name=&quot;myname&quot;
+<pre><code>$ cdk --profile=&lt;me&gt; bootstrap --context name="myname"
+$ cdk --profile=&lt;me&gt; deploy --context name="myname"
 </code></pre>
 <p>Whenever you make CDK changes, then you <code>cdk --profile=&lt;me&gt; deploy --context name="myname"</code> again.</p>
-<h2>Rust Pusher</h2>
+<h2 id="rust-pusher">Rust Pusher</h2>
 <p>After I set this infrastructure up I decided to go back to the Rust Raspberry Pi binary to push some example values to S3. <a href="https://github.com/benhirsch24/rustbustion/pull/1/commits/ee32d62f47ce82f7501d2f308bce0c00e29828c1">This is the commit here</a>.</p>
-<h3>Note on Async Code Style</h3>
+<h3 id="note-on-async-code-style">Note on Async Code Style</h3>
 <p>A note on my preferred software "style" for coding async programs which comes from a lot of Go development. I prefer to write as much synchronous code as possible and then "launch" the synchronous code in async tasks that can communicate through channels. I tend to see a lot of more junior or async-inexperienced engineers write a lot of code that launches tasks/Goroutines behind a "Start" function. While that's fine I think it makes programs harder to reason about:</p>
 <p>How do you stop what was started? You could provide a context (Go) or a channel that denotes "doneness". Does <code>Start</code> need to be idempotent? Will everyone make sure to write it that way with the right assumptions? Will people remember to <code>Stop</code> things?</p>
 <p>How this manifests in my Rustbustion code is to have a main function that looks like this pseudo-Rust-code with no real error handling:</p>
-<pre><code>#[tokio::main(flavor = &quot;current_thread&quot;)]
+<pre><code>#[tokio::main(flavor = "current_thread")]
 async fn main() -&gt; anyhow::Result&lt;()&gt; {
   let finder = CombustionFinder::new();
   let device = finder.find().await?;
@@ -176,11 +179,11 @@ async fn main() -&gt; anyhow::Result&lt;()&gt; {
 
   let (temperature_tx, mut temperature_rx) = tokio::sync::mpsc::channel(100);
 
-  let pusher = Pusher::new(&quot;bucket-name&quot;);
+  let pusher = Pusher::new("bucket-name");
   tokio::spawn(async move {
     while let Some(t) = temperature_rx.recv().await {
       if let Err(e) = pusher.push(t) {
-        error!(&quot;There was a pushing error: {:?}&quot;, e);
+        error!("There was a pushing error: {:?}", e);
         continue;
       }
     }
@@ -204,7 +207,7 @@ async fn main() -&gt; anyhow::Result&lt;()&gt; {
 <p>Pusher has one synchronous-looking function called <code>push</code> and the <code>Combustion</code> struct has one synchronous-looking function called <code>get_raw_temp</code>. The main function spawns a Tokio task to wait for temperatures coming over a channel and pushes them on to S3 (which the Pusher encapsulates). It then loops forever getting temperatures on a ticker and pushing them into the channel; once there's some cancellation signal (eg: Ctrl-C) it exits the loop.</p>
 <p>The local server that the Python server reads from uses an <code>Arc&lt;Mutex&lt;f32&gt;&gt;</code> because the server just needs to serve the latest value. Ultimately the server (which uses Warp) would need an <code>Arc&lt;Mutex&lt;f32&gt;&gt;</code> pattern somewhere I would assume because the Svc struct used by Warp would need thread-safety. Without looking at any documentation, if I want any request to my HTTP server to access the latest value written by (likely) another system thread, I need memory safety.</p>
 <p>Another note to self: I need to wait for the S3 pusher to be done and handle any backlog. In Go I'd use a <a href="https://pkg.go.dev/sync#WaitGroup">sync.WaitGroup</a> for that. I'm sure there's something in Rust for this.</p>
-<h3>Actual S3 Pushing code</h3>
+<h3 id="actual-s3-pushing-code">Actual S3 Pushing code</h3>
 <p>The actual S3 code is boring. <a href="https://github.com/benhirsch24/rustbustion/pull/1/commits/ee32d62f47ce82f7501d2f308bce0c00e29828c1#diff-cea2a144ae16e759b538a99a5f539ba5ca60f992ff14e57059e7dde87040d9b3R36">Here's the commit</a>. It's pretty much just all about figuring out when the rollover is in the buffer that I defined (100 entries) and forming the S3 key structure.</p>
 <p>To test the S3 abilities what I did was I made an IAM User with the right credentials and got an access key/secret for it. I put that under a profile in <code>~/.aws/credentials</code> and ran my Rust code to see that it all worked on my Mac. I did the same thing on my Raspberry Pi before calling it good.</p>
 <h1>Wrapping Up</h1>
@@ -214,10 +217,13 @@ async fn main() -&gt; anyhow::Result&lt;()&gt; {
         </div>
     </article>
     
+        </div>
+        
     </main>
 
     <footer>
         <p>© Ben Hirsch. Built with ♥️  by Claude Code.</p>
     </footer>
+    <script src="../js/main.js" defer></script>
 </body>
 </html>

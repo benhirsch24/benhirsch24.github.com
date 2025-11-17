@@ -1,0 +1,825 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>If I can write an async runtime, you can write an async runtime - Ben Hirsch</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../css/main.css">
+</head>
+<body>
+    <header>
+        <h1><a href="./">Ben Hirsch</a></h1>
+        <nav>
+            <a href="https://benhirsch24.github.io">Home</a>
+            <a href="https://benhirsch24.github.io/archive.html">Archive</a>
+            <a href="https://github.com/benhirsch24">GitHub</a>
+            <a href="https://linkedin.com/in/benhirsch24">LinkedIn</a>
+            <a href="https://benhirsch24.github.io/about.html">About</a>
+        </nav>
+    </header>
+
+    <main>
+        
+        <div class="post-layout">
+            <aside class="post-toc" aria-label="Table of contents"><h2>On this page</h2><nav><ol><li><a href='#async-runtime'>Async runtime</a><ol><li><a href='#what-is-io-uring'>What is IO Uring?</a><ol><li><a href='#whats-the-alternative'>What&#x27;s the alternative?</a></li></ol></li><li><a href='#basic-runtime-around-io-uring'>Basic runtime around io uring</a><ol><li><a href='#implementation-detail-thread-local-variables'>Implementation Detail: Thread local variables</a></li></ol></li><li><a href='#tasks-and-futures'>Tasks and Futures</a><ol><li><a href='#what-is-an-async-fn'>What is an async fn?</a></li><li><a href='#running-multiple-async-functions-concurrently'>Running multiple async functions concurrently</a></li></ol></li></ol></li><li><a href='#implementing-io-and-other-useful-things'>Implementing IO and other useful things</a><ol><li><a href='#files'>Files</a><ol><li><a href='#safety'>Safety</a></li></ol></li><li><a href='#network'>Network</a></li><li><a href='#other-things'>Other Things</a><ol><li><a href='#channels'>Channels</a></li><li><a href='#waitgroups'>WaitGroups</a></li></ol></li></ol></li></ol></nav></aside>
+            
+    <article class="post">
+        <h1 class="post-title">If I can write an async runtime, you can write an async runtime</h1>
+        <div class="post-info">November 15, 2025</div>
+        <div class="post-content">
+            <p>Now I'm just a simple country Principal Engineer at AWS, but I truly believe that if I can write an async runtime in Rust then you can write an async runtime in Rust.</p>
+<p>I've been working on my personal learning project <a href="https://github.com/benhirsch24/twoio/tree/main">twoio</a> for a couple of months now. I started by wanting to learn about <code>io_uring</code> but as that evolved I re-learned all of the lessons of event loop driven IO and the motivations behind async Rust (or runtimes like Go has). In this post I'd like to discuss an intersection of how to write an async runtime, how <code>io_uring</code> works (a bit), how to implement some common IO constructs, and also how to implement an actual program.</p>
+<p>First some caveats:</p>
+<p>This async runtime is not meant to be production ready. Use tokio, use glommio, use something else. This is purely a personal project.</p>
+<p>This is meant to be single threaded, not multi-threaded. This let me write lock-free code and keep it simple. I'm not going to go over work stealing from other threads or other fun topics.</p>
+<p>I have not even attempted to solve tough <code>io_uring</code> problems like what happens when you drop a Future or cancel a Future and the buffer the kernel has been told to write to is freed.</p>
+<p>The goal of this article and my project is to learn some concepts and be able to go one level deeper in the future if you need to.</p>
+<p>The way I'm going to structure this page is in the first half I will go through writing an async runtime as I did for twoio. In the second half I will document in more detail the code I wrote for the underlying file/network operations. In the third half I'll cover a couple of illustrative programs. And in the fourth half I'll go into the process I went through writing <code>io_uring</code> programs and why I ended up writing an async runtime in the first place.</p>
+<p>Halves 3 and 4 will be a separate post because this got way too long.</p>
+<h2 id="async-runtime">Async runtime</h2>
+<h3 id="what-is-io-uring">What is IO Uring?</h3>
+<p>First let's talk about <a href="https://man7.org/linux/man-pages/man7/io_uring.7.html">io_uring</a>. This is a new(ish) Linux API for asynchronous IO. The basic idea is that your user space application has two shared ring buffers with the kernel: a queue for submitting IO operations for the kernel to do, and a queue for the kernel telling your userspace program which operations have completed (with their results). The goal is to reduce the number of expensive syscalls your program makes; instead, you make one syscall to the kernel which consumes all of the IO operations you want to do off the submission queue in one go.</p>
+<p>Your core IO loop then is structured like this (Rust pseudocode):</p>
+<pre><code class="language-rust">fn run(
+  to_submit: Vec&lt;Entry&gt;,
+  handle_completion: Fn(result: u32, user_data: u32, to_submit: &amp;mut Vec&lt;Entry&gt;),
+  completions_done: Fn(to_submit: Rc&lt;RefCell&lt;Vec&lt;Entry&gt;&gt;&gt;)
+) {
+  let uring = Uring::new();
+  let submission_queue, completion_queue = uring.queues();
+  loop {
+    // Process all of the done IO operations
+    for completion in completion_queue.entries() {
+      handle_completion(completion.result(), completion.user_data(), &amp;to_submit);
+    }
+    completions_done();
+
+    // Push any new IO operations generated into the shared submission queue
+    for entry in to_submit {
+      submission_queue.push(entry);
+    }
+    // Submit this batch to the kernel and wait for at least 1 completion event
+    uring.submit_and_wait(1);
+  }
+}
+</code></pre>
+<p>Hopefully this is fairly self explanatory, but our basic run loop is pretty simple. You put one or more <code>Entry</code>s describing your IO onto the submission queue and then make one syscall to the kernel telling it to grab all of the operations off the queue. At some point in the future the IO is done and <code>Entry</code>s representing the result are pushed onto the completion queue which you consume and do something with. That something may generate more IO operations to do, which can be put on the <code>to_submit</code> queue, and so on.</p>
+<p>Entries look like this using the popular <a href="https://docs.rs/io-uring/latest/io_uring/squeue/struct.Entry.html">io-uring</a> crate. You can attach a u64 user data to it to tag the operation submitted to the completion event.</p>
+<pre><code class="language-rust">let read_entry = opcode::Read::new(file_descriptor, buffer_pointer, length).build().user_data(next_user_data_tag());
+</code></pre>
+<p>When the completion event finishes</p>
+<h4 id="whats-the-alternative">What's the alternative?</h4>
+<p>First let me link <a href="https://without.boats/blog/why-async-rust/">this excellent post</a> which I'll essentially re-hash in a different post.</p>
+<p>If you're unfamiliar with the motivations behind async/await and event loops I'll discuss that more in the next post, but very quickly let's go over epoll.  Epoll looks pretty similar to the above but with some differences.</p>
+<p>Again, very much pseudocode:</p>
+<pre><code class="language-rust">fn read_callback(fd: RawFd) -&gt; Result&lt;EpollResult&gt; {
+  let mut buffer = [0u8; 64];
+  // Perform syscall
+  let res = read(fd, &amp;mut buffer, 64);
+  // Error handling
+  // ...
+  Ok(EpollResult::Continue)
+}
+
+fn run(
+  start: Fn(epoll: &amp;mut Epoll),
+  handle_ready_fd: Fn(fd: RawFd),
+) {
+  let socket = listener_socket();
+  let epoll = epoll_create();
+  // This adds IO at the beginning, like creating a listening socket
+  start(&amp;mut epoll);
+  let mut epoll_events = [epoll_event_default(); 64];
+  loop {
+    let num_events = epoll_wait(&amp;mut epoll_events);
+    for i in 0..num_events {
+        let fd = epoll_events[i].fd;
+        match handle_ready_fd(fd) {
+            Ok(EpollResult::Delete) =&gt; {
+                epoll.remove(fd);
+            },
+            _ =&gt; {
+                // Keep going, error handling, this is pseudo code
+            }
+        }
+    }
+  }
+}
+</code></pre>
+<p>Here we have an epoll container and file descriptors get registered into the container telling the kernel we're interested in knowing when they're "ready" for data to be read or something similar. Then once there are some file descriptors ready we do something very similar where we can call a callback for each file descriptor.</p>
+<p><strong>The crucial difference</strong> is that the callback is what does the syscall to actually read the data. In the <code>io_uring</code> example the data was placed in the read buffer that was submitted. In epoll the kernel says "this fd is ready to read" and you now can read from it. If you have thousands of open connections that have bytes ready to read that means doing thousands of syscalls whereas <code>io_uring</code> enables you to do just one.</p>
+<h3 id="basic-runtime-around-io-uring">Basic runtime around io uring</h3>
+<p>Let's start with a basic runtime around <code>io_uring</code>. We know from above that each operation can have its own user data u64 and each operation results in a i32 result. We need a way to register that a new operation is going to happen and a way to get the result once it's complete. We can assume we only need to get the operation once and can remove it afterwards.  We can also assume that the executor owns the uring as well.</p>
+<pre><code class="language-rust">pub struct Executor {
+  next_op_id: u64,
+  op_to_result: HashMap&lt;u64, i32&gt;,
+}
+
+impl Executor {
+  pub fn new() -&gt; Self {
+    Self {
+      uring: IoUring::new(1024).expect("io uring new"),
+      next_op_id: 0,
+      op_to_result: HashMap::new(),
+    }
+  }
+
+  pub fn get_next_op_id(&amp;mut self) -&gt; u64 {
+    let op = self.next_op_id;
+    self.next_op_id += 1;
+    op
+  }
+
+  pub fn get_result_for_op(&amp;mut self, op: u64) -&gt; Option&lt;i32&gt; {
+    self.op_to_result.remove(op)
+  }
+
+  pub fn handle_completion(&amp;mut self, op: u64, res: i32) {
+    self.op_to_result.insert(op, res);
+  }
+}
+</code></pre>
+<p>So we submit an operation and at some point in the future the result becomes available. We need something that wraps this concept up: a <a href="https://doc.rust-lang.org/std/future/trait.Future.html">Future</a>!</p>
+<p>Futures look like this:</p>
+<pre><code class="language-rust">pub trait Future {
+    type Output;
+
+    // Required method
+    fn poll(self: Pin&lt;&amp;mut Self&gt;, cx: &amp;mut Context&lt;'_&gt;) -&gt; Poll&lt;Self::Output&gt;;
+}
+
+pub enum Poll&lt;T&gt; {
+  Ready(T),
+  Pending
+}
+</code></pre>
+<p>When we submit an operation we return some type that implements a Future. Whenever you poll the Future it is either still Pending (meaning the corresponding completion event hasn't come in on the completion queue yet) or it's Ready when it has, in which case we return that value. Let's write an example Future around File::open.</p>
+<pre><code class="language-rust">struct OpenFuture {
+  op_id: u64,
+  _path: CString,
+  done: bool,
+}
+
+fn open&lt;P: AsRef&lt;Path&gt;&gt;(path: P) -&gt; OpenFuture {
+  let op_id = executor.get_next_op_id();
+
+  // Turn the path into a "C String" (ASCII characters) and get a pointer to that.
+  let path_bytes = path.as_ref().as_os_str().as_bytes();
+  let c_path = CString::new(path_bytes)
+      .map_err(|_| std::io::Error::other("paths containing NUL bytes are not supported"))?;
+
+  // Create the opcode with the same arguments you would use for `openat`
+  let opcode = opcode::OpenAt::new(types::Fd(libc::AT_FDCWD), c_path.as_ptr())
+      .flags((libc::O_RDWR | libc::O_CLOEXEC) as _)
+      .mode(0);
+
+  // Add this operation to the queue which will be submitted in a batch to the uring
+  // when the runtime decides to flush the events and call submit_and_wait
+  let submission_entry = opcode.build().user_data(opcode);
+  uring::submit(submission_entry);
+
+  // Return a future representing the operation that will complete in the future
+  OpenFuture {
+    op_id,
+    _path: c_path,
+    done: false,
+  }
+}
+
+impl Future for OpenFuture {
+  type Output = std::io::Result&lt;twoio::File&gt;;
+  fn poll(self: Pin&lt;&amp;mut Self&gt;, _cx: &amp;mut Context&lt;'_&gt;) -&gt; Poll&lt;Self::Output&gt; {
+    let me = self.as_ref();
+    if me.done {
+      panic!("Don't poll me again, I'm done");
+    }
+
+    match executor::get_result_for_op(op_id) {
+      Some(res) =&gt; {
+        me.done = true;
+        // There will be no errno set because with a batch of IO completions there would be no way to know which errno it corresponded to.
+        // Instead if the result is negative then that corresponds to the error code
+        if res &lt; 0 {
+          Poll::Ready(Err(std::io::Error::from_raw_os_error(-res)))
+        } else {
+          // Returns the file.
+          Poll::Ready(Ok(twoio::File::new(res)))
+        }
+      },
+      None =&gt; Poll::Pending,
+    }
+  }
+}
+</code></pre>
+<p>Ok, there's a lot in here.</p>
+<p><strong>Opening the file</strong>: When we open a file we need to pass the string representing the name of the file. There is a mjaor <code>io_uring</code> subtlety which is that the bytes representing the file name must be allocated where the pointer you put in the opcode is until the completion event returns. Remember, that pointer is sent to the kernel asynchronously and you don't know when the kernel will look at it to open the file so we store it in the OpenFuture.</p>
+<p><strong>The OpenFuture</strong>: This is pretty straighforward to me. Every time someone calls <code>poll</code> on the future it asks the <code>Executor</code> if there's a result for the operation it was created with. If so, the Future is now <code>Ready</code> and it returns the file. If not that means the operation hasn't completed yet and so the Future is <code>Pending</code>.</p>
+<p>As I noted in the comments, another subtlety of <code>io_uring</code> is how it handles errors. Since you may have multiple IO operations complete at the same time, checking errno doesn't really make sense. Which syscall did it correspond to? Instead the result value returned will be negative and the (negated) value is the error code. So if the first argument to <code>openat</code> was a bad file descriptor then the completion event would return <code>-9</code> for <code>EBADF</code>.</p>
+<p>Great, we have some simple Future and we can imagine how to write new futures in The Future. How do we actually use these things in a program which makes sense?</p>
+<h4 id="implementation-detail-thread-local-variables">Implementation Detail: Thread local variables</h4>
+<p>A note on implementation: You'll see that I use <code>executor::spawn(..)</code> or <code>uring::submit(..)</code> instead of <code>executor.spawn</code> or <code>uring.submit</code>. This is because I've stuck those behind a thread-local static variable like so:</p>
+<pre><code class="language-rust">thread_local! {
+  static URING: UnsafeCell&lt;Option&lt;Uring&gt;&gt; = const { UnsafeCell::new(None) };
+}
+
+pub fn init() {
+  URING.with(|u| unsafe {
+    let u = &amp;mut *u.get();
+    if u.is_some() {
+      return;
+    }
+    let new_u = Uring::new();
+    *u = Some(new_u);
+  });
+}
+
+pub fn submit(sqe: squeue::Entry) {
+  URING.with(|u| unsafe {
+    let u = &amp;mut *u.get();
+    match u.as_mut() {
+      Some(u) =&gt; u.submit(sqe),
+      None =&gt; panic!("uring not initialized")
+    }
+  });
+}
+</code></pre>
+<p>Because each thread will have one uring and one executor and only one task executes at a time this is safe to do. If we use RefCell then you run into the issue of the RefCell being borrowed by uring during <code>run</code> and then again borrowed by uring during <code>handle_completion</code> or something similar. UnsafeCell gets around this and it's safe because everything runs on a single thread.</p>
+<p>I repeated this pattern for executor as well for spawn and things like getting the current task ID for logging.</p>
+<h3 id="tasks-and-futures">Tasks and Futures</h3>
+<p>How do we want to write programs? In my opinion, if we're writing programs that deal with IO then we inherently want to write straightforward imperative code.</p>
+<p>Let's say we want to open a file and read from it. We should express this as:</p>
+<pre><code class="language-rust">use twoio::fs::File;
+async fn read_from_file(path: PathBuf) -&gt; std::io::Result&lt;()&gt; {
+  let f = File::open(path).await?;
+  let mut buf = [0u8; 1024];
+  let _n = f.read(&amp;mut buf, 1024).await?;
+  println!("Read: {}", std::str::from_utf8(&amp;buf)?);
+  f.close().await?;
+}
+</code></pre>
+<p>First you open a file. Then you read from it into a buffer. Then you print that data. Then you close it. It looks just like how you would write a synchronous program, but your function is denoted <code>async</code> and you have to <code>await</code> every operation.</p>
+<p>Why do we need to do this? Imagine we have two files we want to read at the same time and these files are on some network-mounted file system where there is latency between saying <code>f.read(...)</code> and having that data available.</p>
+<pre><code class="language-rust">async fn main() {
+  // Do file1.txt in The Background
+  let task1 = spawn(read_from_file("file1.txt").await.unwrap());
+  // Do file2.txt in The Background
+  let task2 = spawn(read_from_file("file2.txt").await.unwrap());
+  wait_for_both_tasks(task1, task2).await;
+  // Do more stuff
+}
+</code></pre>
+<p>If we want to work on both of these files at the same time on one thread we need to be able to interleave these tasks on the same thread.</p>
+<ol>
+<li>Open file1.txt</li>
+<li>Open file2.txt</li>
+<li>file1.txt is now opened, start reading from file1.txt</li>
+<li>file2.txt is now opened, start reading from file2.txt</li>
+<li>Read from file1.txt is ready, close file1.txt</li>
+<li>Read from file2.txt is ready, close file2.txt</li>
+<li>file1.txt closed</li>
+<li>file2.txt closed</li>
+</ol>
+<p>How do we do this? What I find helpful is to first focus on an <code>async fn</code></p>
+<h4 id="what-is-an-async-fn">What is an async fn?</h4>
+<p>Let's look at the simplest possible async function:</p>
+<pre><code class="language-rust">async fn zero() -&gt; i32 {
+  0
+}
+</code></pre>
+<p>Through the magic of the Rust compiler this function will be transformed into something that implements <code>Future&lt;i32&gt;</code>. If we use our <code>OpenFuture</code> from above we could have something like:</p>
+<pre><code class="language-rust">async fn open_and_zero() -&gt; i32 {
+  let _f = twoio::fs::File::open("path.txt").await.unwrap();
+  0
+}
+</code></pre>
+<p>We open a file (creating a Future and awaiting it) and then return 0. The Rust compiler creates a state machine for you like (pseudocode):</p>
+<pre><code class="language-rust">struct AnonymousFuture {
+  state: State,
+  // variables/bindings here
+}
+
+enum State {
+  State0,
+  State1,
+}
+
+impl Future for AnonymousFuture1 {
+  fn poll(...) -&gt; Self::Output {
+    loop {
+        match self.state {
+          State::State0 =&gt; {
+            self._temp_file = twoio::fs::File::open("path.txt");
+            match self._temp_file.poll(...) {
+                Poll::Ready(v) =&gt; {
+                    self.state = State1;
+                    self._open_return = v;
+                    continue;
+                },
+                Poll::Pending =&gt; return Poll::Pending;
+
+            }
+          },
+          State::State1 =&gt; {
+            self._open_return.unwrap();
+            return Ready(0);
+          },
+        }
+    }
+  }
+}
+</code></pre>
+<p>This is pseudocode and I'm cobbling my understanding together from various Rust threads. If you have any corrections on this or good reading, please feel free to contact me and I will update this article.</p>
+<p>The basic idea is that an async function gets transformed into a state machine that implements Future. The anonymous struct needs to capture all of the variables that your async function creates so that they live across await points; if those values were allocated on the stack and then you returned from the function call these intermediate variables would no longer be alive. Therefore all the code that you wrote gets moved into <code>poll</code> in one of these states and gets executed when the anonymous Future gets polled. Once the function makes it to the end it returns <code>Ready</code> with the final return value.</p>
+<h4 id="running-multiple-async-functions-concurrently">Running multiple async functions concurrently</h4>
+<p>Let's now think again about how we want to write programs. To handle multiple things concurrently on one thread (tens of thousands of open network connections for example) we need to store and poll many many Futures. There is some top-level Future per "task", for example a single top level Future handles a single HTTP request. That async function will have a bunch of code that executes, possibly reading from and writing to the network socket multiple times in the course of its life. Every time we poll the function it returns <code>Poll::Pending</code> until finally it returns <code>Poll::Ready</code>.  We don't want to call <code>poll</code> on every single Future repeatedly: instead since <code>io_uring</code> sends us a completion event whenever some IO is done, we can associate the task to the operation it's waiting for.</p>
+<p>Let's write some pseudocode that we want to be able to write for a server:</p>
+<pre><code class="language-rust">let listener = TcpListener::bind("0.0.0.0:8080").await.unwrap();
+loop {
+  let conn = listener.accept().await.unwrap();
+  executor::spawn(async move {
+    let buffer = vec![0u8; 1024];
+    conn.read(&amp;mut buffer);
+    // do some stuff with buffer
+    let response = "HTTP/1.1 200 OK\r\n";
+    conn.write_all(&amp;response).await.unwrap();
+  });
+}
+</code></pre>
+<p>This is a pretty simple server loop. A TCP listener is created and accept is called; at some point a new connection comes in and we create a new routine which is run in the background (from the perspective of the accept loop) which handles that new connection. Spawn returns immediately (from the perspective of the accept loop) and we do it again. Each spawned function reads from the socket, writes to the socket, and then exits.</p>
+<p>Now let's think through the sequence of events in our Executor and how this would work:</p>
+<ol>
+<li>There is some Task created for the accept loop code.</li>
+<li>The executor polls the accept loop task (task 0)</li>
+<li>An Accept future is created which submits an <code>opcode::Accept</code> to <code>io_uring</code> and then returns Pending</li>
+<li>A connection comes in and <code>io_uring</code> returns a completion event. That fires the executor <code>handle_completion</code> callback which associates the user data tag to the result. It also tells the executor that task 0 is ready for progress. The Executor puts task 0 in the ready queue.</li>
+<li>The executor iterates through the ready queue and re-polls task 0 which is at the accept future</li>
+<li>Now the Accept future finds the result in the Executor's hashmap. That result is a new socket. Task 0 now calls <code>executor::spawn</code> with an async function (which is a Future). This creates task 1. <code>spawn</code> immediately places task 1 in the ready queue.</li>
+<li>Task 0 loops and goes back to accept</li>
+<li>Executor finds task 1 in the ready queue and polls it. Task 1 allocates a Vector, creates a read future, tells the executor that the operation id for the read future associates to task 1, and then returns Pending.</li>
+<li>A new connection comes in and we repeat step 4 creating task 2.</li>
+<li>Task 2 is polled, we repeat step 8 to create the read future for task 2</li>
+<li>Data comes in for task 2, the <code>handle_completion</code> callback is called which wakes up task 2 (note that task 1 has not gotten data yet so it is still waiting).</li>
+<li>Life goes on in this fashion for a while, etc</li>
+</ol>
+<p>Hopefully this illustrates what is going on underneath the hood. We spawn Tasks to the executor (a Task is just a way of saying a Future that is an independent unit for the executor to keep polling) and the executor polls these Tasks once they're ready. The Task code in the poll function creates other Futures which submit their operations to <code>io_uring</code>, associates the task ids to the operation ids, and returns Pending until they are woken up.</p>
+<p>From the Executor perspective we need to add a few things:</p>
+<ol>
+<li>Get a new task ID</li>
+<li>Associate an operation ID to a task ID</li>
+<li>Wake up tasks once an operation completion comes in</li>
+<li>Handle the tasks which are now ready to be re-polled</li>
+</ol>
+<pre><code class="language-rust">struct Executor {
+  // ... other fields we defined above
+  tasks: HashMap&lt;u64, LocalBoxFuture&lt;'a, ()&gt;&gt;,
+  op_to_task: HashMap&lt;u64, u64&gt;,
+  next_task_id: u64,
+  ready_queue: Vec&lt;u64&gt;,
+}
+
+impl Executor {
+  // ... other functions we defined above
+
+  fn get_next_task_id(&amp;mut self) -&gt; u64 {
+    let tid = self.next_task_id;
+    self.next_task_id += 1;
+    tid
+  }
+
+  fn associate_op_to_task(&amp;mut self, op_id: u64, task_id: u64) {
+    self.op_to_task.insert(op_id, task_id);
+  }
+
+  fn spawn(&amp;mut self, fut: impl Future&lt;Output = ()&gt; + 'static) {
+    let task_id = self.get_next_task_id();
+    self.tasks.insert(task_id, fut.boxed_local());
+    self.ready_queue.push(task_id);
+  }
+
+  fn handle_completion(&amp;mut self, op_id: u64, res: i32) {
+    self.op_to_result.insert(op, res);
+    match self.op_to_task.get(&amp;op) {
+      Some(tid) =&gt; self.ready_queue.push(tid),
+      None =&gt; panic!("We aren't going to implement cancellation");
+    }
+  }
+
+  // This function handles the ready queue
+  fn completions_done(&amp;mut self) {
+    loop {
+      if self.ready_queue.len() == 0 {
+        return;
+      }
+
+      let ready_queue = std::mem::take(&amp;mut self.ready_queue);
+      for task_id in ready_queue.iter() {
+        if let Some(task) = self.tasks.remove(&amp;task_id) {
+          let mut ctx = Context::from_waker(Waker::noop());
+          match task.as_mut().poll(&amp;mut ctx) {
+            Poll::Ready(_) =&gt; {
+              // Nothing to do, it's ready and we haven't implemented JoinHandles
+            },
+            Poll::Pending =&gt; {
+              self.tasks.insert(*task_id, task);
+            },
+          }
+        }
+      }
+    }
+  }
+}
+</code></pre>
+<p>Hopefully this code is pretty straightforward and self explanatory.</p>
+<p>Spawn takes a future, puts it in the tasks map, and immediately pushes it to the ready queue to be ran (polled) for the first time. I'm using <code>futures::future::LocalBoxFuture</code> which is a type alias to <code>Pin&lt;Box&lt;dyn Future&lt;...&gt;&gt;&gt;</code>. I don't want to cover Pin in any great detail here, but I'll add some references at the bottom.</p>
+<p>I've filled in that the <code>completions_done</code> handler which is called once all completion events are processed by <code>io_uring</code> handles all of the ready tasks. We loop through the <code>ready_queue</code> until there's no tasks remaining - we do this because polling a task may generate new work that needs to be immediately serviced. Otherwise it will have to wait until <code>io_uring</code> returns with completions again. A more smarter design would add time slicing and co-operative yielding here so the ready queue handling doesn't loop too many times, but again: not production, personal learning project.</p>
+<p>At this point we have a real functioning async runtime! Believe me, I also was surprised how easy this was once you dig into it.</p>
+<p>This concludes the first part of this page, introducing how simple it can be to write an async runtime. Next I'll go into writing common constructs like Files and TCP Streams so that we can actually do something with it.</p>
+<h2 id="implementing-io-and-other-useful-things">Implementing IO and other useful things</h2>
+<p>Now we can think about implementing IO (and other useful things).</p>
+<h3 id="files">Files</h3>
+<p>Let's start with the File example. What do people do with files? Open them, read from them, write to them, and close them. Seek too, but I haven't implemented that yet.</p>
+<p>We already opened a file above. Let's move on to reading from a file. The <a href="https://docs.rs/futures">futures crate</a> provides the trait <code>AsyncRead</code> to describe reading from a resource.</p>
+<pre><code class="language-rust">pub trait AsyncRead {
+  fn poll_read(self: Pin&lt;&amp;mut Self&gt;, cx: &amp;mut Context&lt;'_&gt;, buf: &amp;mut [u8]) -&gt; Poll&lt;Result&lt;usize, Error&gt;&gt;;
+}
+</code></pre>
+<p>If you wanted to use this you could</p>
+<pre><code class="language-rust">let file = File::open("path.txt").await?;
+let mut buffer = vec![0u8; 1024];
+let read_future = file.read(&amp;mut buffer);
+loop {
+  match read_future.poll_read(Context::from_waker(Waker::noop())) {
+    Poll::Ready(n) =&gt; println!("Read {n} bytes"),
+    Poll::Pending =&gt; println!("Waiting on read"),
+  }
+}
+</code></pre>
+<p>Hmm... this kinda sucks. I want to read as if I was using synchronous Rust's <a href="https://doc.rust-lang.org/std/io/trait.Read.html#tymethod.read">read</a> method. Luckily <code>futures</code> provides the <a href="https://docs.rs/futures/latest/futures/io/trait.AsyncReadExt.html">AsyncReadExt trait</a>.</p>
+<pre><code class="language-rust">pub trait AsyncReadExt: AsyncRead {
+    fn read&lt;'a&gt;(&amp;'a mut self, buf: &amp;'a mut [u8]) -&gt; Read&lt;'a, Self&gt;
+       where Self: Unpin { ... }
+}
+</code></pre>
+<p>And <code>read</code> is actually a provided method. This means that if you implement <code>poll_read</code> for your type you get <code>read</code> for free!</p>
+<p><code>read</code> returns a <a href="https://docs.rs/futures/latest/futures/io/struct.Read.html">Read</a> type which <a href="https://docs.rs/futures/latest/futures/io/struct.Read.html#method.poll">implements poll</a>. This means that you can <code>.await</code> it like any other Future instead of writing a loop! All it really boils down to is that the <a href="https://docs.rs/futures-util/0.3.31/src/futures_util/io/read.rs.html#23">Read::poll function calls file.poll_read</a> but that's all it needs to do for you to write nicer code.</p>
+<p>Getting back to our File implementation:</p>
+<pre><code class="language-rust">impl AsyncRead for File {
+    // TODO: This implementation is not accurate as the buffer could be modified when we return
+    // Poll::Pending. Really we need to implement an internal buffer. But if you are careful you
+    // can use it.
+    fn poll_read(
+        mut self: Pin&lt;&amp;mut Self&gt;,
+        _cx: &amp;mut Context&lt;'_&gt;,
+        buf: &amp;mut [u8],
+    ) -&gt; Poll&lt;Result&lt;usize, futures::io::Error&gt;&gt; {
+        let mut me = self.as_mut();
+        let fd = me.fd;
+
+        // Check if there's an outstanding operation. If so check in the executor if there's a result yet.
+        if let Some(op_id) = me.read_op_id {
+            return match executor::get_result(op_id) {
+                Some(res) =&gt; {
+                    me.read_op_id = None;
+                    if res &lt; 0 {
+                        Poll::Ready(Err(std::io::Error::from_raw_os_error(-res)))
+                    } else {
+                        Poll::Ready(Ok(res as usize))
+                    }
+                }
+                None =&gt; Poll::Pending,
+            };
+        }
+
+        // No operation yet, so schedule the operation with uring and tell the executor about it
+        let op_id = executor::get_next_op_id();
+        me.read_op_id = Some(op_id);
+        let ptr = buf.as_mut_ptr();
+        let len = buf.len() as u32;
+        let op = opcode::Read::new(types::Fd(fd), ptr, len).offset(CURRENT_POSITION);
+        executor::associate_op_to_task(op_id, false);
+        match uring::submit(op.build().user_data(op_id)) {
+            Ok(_) =&gt; Poll::Pending,
+            Err(e) =&gt; {
+                me.read_op_id = None;
+                Poll::Ready(Err(Error::other(format!("Uring problem: {e}"))))
+            }
+        }
+    }
+}
+</code></pre>
+<p>There's a lot here, but also not too much. Ignoring the first check, let's go to the bottom block. We basically create a <code>Read</code> opcode on the file's file descriptor and build it with a pointer to the buffer. We tell the executor about it and submit it to uring. We also set this operation's ID on the file.</p>
+<p>Winding back, we only want one outstanding read operation on the File at a time for now. This makes getting the result for the operation simpler. If we wanted to allow for multiple reads to the file to be queued up at the same time we could allow Files to be copied or create new Files from the file descriptor; this is actually a nice advantage for <code>io_uring</code> because it could make this simpler. But for now, one read per File object at a time.</p>
+<p>If the operation exists then we look in the executor to see if there's a result. If there is a result we parse it: if negative we can use <code>std::io::Error::from_raw_os_error(-res)</code> to return a nicely typed error; otherwise, return the result number of bytes read.</p>
+<p>And that's it! Write and Close are implemented similarly.</p>
+<h4 id="safety">Safety</h4>
+<p><strong>NOTE</strong> as I mentioned in the comments, this is not safe. Think about this code:</p>
+<pre><code class="language-rust">let mut buf = vec![0u8; 1024];
+let read = file.read(&amp;mut buf);
+drop(buf);
+</code></pre>
+<p>On creating the Read future we issue a Read opcode to the Linux kernel and give it a raw pointer to the buffer's data. Creating the Future submits the opcode to the uring, But we don't await the future and drop the buffer. However without removing that opcode from the submission queue before it's submitted or without submitting an <a href="https://docs.rs/io-uring/latest/io_uring/opcode/struct.AsyncCancel.html">AsyncCancel</a> the kernel will try to read data into where that pointer pointed to, but that location is no longer valid.</p>
+<p>There's a <a href="https://without.boats/blog/io-uring/">great post by boats on this exact topic</a> so I won't try to add more to the discussion, but bring up some thoughts for the reader. Do you submit a cancel when the future is dropped? Do you have to wait for that cancel to go through (ie: blocking)? Do you move buffers inside the type and use <a href="https://docs.rs/futures/latest/futures/io/trait.AsyncBufRead.html">AsyncBufRead</a> (which is what is meant to be done)? There's a lot of nuance to this problem.</p>
+<p>Luckily I get to throw up my hands and say "don't fuck up" because this is a library I'm doing for fun, not for production.</p>
+<h3 id="network">Network</h3>
+<p>Next let's talk networking which is the domain I spend my time in as a video streaming engineer at Amazon IVS (the video backend behind Twitch).</p>
+<p>As you can imagine reading and writing to TCP sockets is very much like it is for Files. What is interesting and novel is the idea of "multishot" opcodes. For example <a href="https://docs.rs/io-uring/latest/io_uring/opcode/struct.AcceptMulti.html">AcceptMulti</a></p>
+<p>Normally, as illustrated above, you write code like this for a server:</p>
+<pre><code class="language-rust">loop {
+  let conn = listener.accept().await?;
+  spawn(async move {
+    // do stuff with conn
+  });
+}
+</code></pre>
+<p>Every call to <code>accept</code> does a syscall to the kernel waiting for a connection to be handshooken and put in the accept queue. Instead in <code>io_uring</code> you can use a "multishot" opcode to submit accept once and keep it armed until you decide to unarm it.</p>
+<p>However that means that we need to adapt the Executor to the paradigm where operations won't be immediately deleted from the operation to results map. The TcpListener also needs to know if a multishot accept has already been submitted so it doesn't re-submit one. Luckily both are fairly easy.</p>
+<pre><code class="language-rust">struct Executor {
+  // ...
+  // This is a vector of results in case multiple results have come in
+  multi_results: HashMap&lt;u64, Vec&lt;i32&gt;&gt;,
+  // op to task needs to know if the operation is a multi operation
+  op_to_task: HashMap&lt;u64, (u64, bool)&gt;,
+}
+
+fn associate_op_to_task(&amp;mut self, op_id: u64, is_multi: bool) {
+  let task_id = self.get_current_task_id();
+  self.op_to_task.insert(op, (task_id, is_multi));
+}
+
+fn get_result_for_op(&amp;mut self, op: u64) -&gt; Option&lt;i32&gt; {
+  let (_, is_multi) = self.op_to_task.get(&amp;op).unwrap();
+  if *is_multi {
+    if let Some(v) = self.multi_results.get_mut(&amp;op) {
+      v.pop()
+    } else {
+      None
+    }
+  } else {
+    self.op_to_result.remove(op)
+  }
+}
+
+fn handle_completion(&amp;mut self, op_id: u64, res: i32) {
+  let (task_id, is_multi) = self.op_to_task.get(&amp;op_id);
+  if is_multi {
+    self.multi_results.entry(op).or_default().push(res);
+  } else {
+    self.results.insert(op, res);
+  }
+}
+</code></pre>
+<p>Basically we maintain another map of operations to results, but this time the results are a Vec in case eg a bunch of connections come in before we can accept them all.</p>
+<p>Now we can implement <code>accept_multi</code>. Let's assume that TcpListener has been created and bound to an address already so we have a file descriptor. That all should be pretty straightforward, or you can <a href="https://github.com/benhirsch24/twoio/blob/6a6a9c0318c2abc993325671484e8090b2671497/src/net.rs#L22">look at my code</a>. I did not make that async since I figure it typically gets called once at the beginning of a binary.</p>
+<pre><code class="language-rust">struct TcpListener {
+  fd: RawFd,
+  accept_multi_op: Option&lt;u64&gt;,
+}
+
+impl TcpListener {
+  pub fn accept_multi(&amp;mut self) -&gt; AcceptMultiFuture {
+    if let Some(op_id) = self.accept_multi_op.as_ref() {
+      return AcceptMultiFuture{ op_id: *op_id };
+    }
+
+    let op = opcode::AcceptMulti::new(types::Fd(fd));
+    let op_id = executor::get_next_op_id();
+    self.accept_multi_op = Some(op_id);
+    executor::associate_op_to_task(op_id, true);
+    uring::submit(op.build().user_data(op_id));
+    AcceptMultiFuture{ op_id }
+  }
+}
+
+struct AcceptMultiFuture {
+  op_id: u64,
+}
+
+impl Future for AcceptMultiFuture {
+  type Output = std::io::Result&lt;twoio::TcpStream&gt;;
+  fn poll(self: Pin&lt;&amp;mut Self&gt;, _cx: &amp;mut Context&lt;'_&gt;) -&gt; Poll&lt;Self::Output&gt; {
+    let me = self.as_ref();
+    match executor::get_result(self.op_id) {
+      Some(res) =&gt; {
+        if res &lt; 0 {
+          Poll::Ready(Err(std::io::Error::from_raw_os_error(-res)))
+        } else {
+          Poll::Ready(Ok(twoio::TcpStream::from_raw_fd(res)))
+        }
+      },
+      None =&gt; Pending,
+    }
+  }
+}
+</code></pre>
+<p>And that's really it. Every time TcpListener creates an AcceptFuture for the user it checks if there's an outstanding operation; if not it submits it, if so it just makes a future with that op id. When AcceptFuture is polled it'll check the Vector in executor for that operation id and return sockets (unless there's an error) or Pending.</p>
+<p>You can imagine that <a href="https://github.com/benhirsch24/twoio/blob/6a6a9c0318c2abc993325671484e8090b2671497/src/net.rs#L148">connect</a>, <a href="https://github.com/benhirsch24/twoio/blob/6a6a9c0318c2abc993325671484e8090b2671497/src/net.rs#L196">read</a>, and <a href="https://github.com/benhirsch24/twoio/blob/6a6a9c0318c2abc993325671484e8090b2671497/src/net.rs#L248">write</a> are fairly straightforward, and here are links to code if you want to read them.</p>
+<h3 id="other-things">Other Things</h3>
+<p>Here's a collection of other things I need to write concurrent programs: timeouts, channels, and wait groups. Is it obvious that I program in Go as a day job?</p>
+<p>I don't think I need to go into detail about timeouts, <a href="https://github.com/benhirsch24/twoio/blob/main/src/timeout.rs#L19">here's the code</a>. I think it's cool that Timeouts also have a multishot option for ticker-like behavior. It's occurring to me that I should probably call that variant a <code>Ticker</code> instead of timeout in my library.</p>
+<p>Channels and WaitGroups are interesting because they need to interact with the Executor without being driven by <code>io_uring</code> completion events.</p>
+<h4 id="channels">Channels</h4>
+<p>Much has been written about Go's channels and for good reason: it makes sharing data between otherwise independent routines very simple.</p>
+<p>For the program that I was writing I implemented a <a href="https://github.com/benhirsch24/twoio/blob/6a6a9c0318c2abc993325671484e8090b2671497/src/sync/mpsc.rs#L81">multi-producer single consumer channel</a>. I wanted multiple writers to send data to a single reader who would read each message in turn and do something with it.</p>
+<p>This boils down to having a single shared double-ended queue (<code>std::collections::VecDeque</code>) shared between senders and the receiver.</p>
+<p>This is what <code>Rc&lt;RefCell&lt;...&gt;&gt;</code> is for. <code>Rc</code> is a ref counter wrapper which allows multiple locations in code to have a reference to the same data which is allocated on the heap. Once the last holder of a reference drops it the data will automatically be freed. <code>RefCell</code> allows mutability of this data by the multiple borrowers by shifting the borrow checking rules to runtime instead of compile time.</p>
+<p>The whole implementation is pretty simple:</p>
+<pre><code class="language-rust">pub enum SendError {
+    Closed,
+    Full, // We're unbounded right now but maybe one day
+}
+
+pub struct Receiver&lt;T: Clone&gt; {
+    inner: Inner&lt;T&gt;,
+}
+
+impl&lt;T: Clone&gt; Receiver&lt;T&gt; {
+    pub fn recv(&amp;mut self) -&gt; RecvFuture&lt;T&gt; {
+        *self.inner.receiver_task_id.borrow_mut() = Some(executor::get_task_id());
+        RecvFuture {
+            inner: self.inner.clone(),
+        }
+    }
+
+    pub fn close(&amp;mut self) {
+        *self.inner.closed.borrow_mut() = true;
+    }
+}
+
+pub struct RecvFuture&lt;T: Clone&gt; {
+    inner: Inner&lt;T&gt;,
+}
+
+impl&lt;T: Clone&gt; Future for RecvFuture&lt;T&gt; {
+    type Output = Option&lt;T&gt;;
+    fn poll(self: Pin&lt;&amp;mut Self&gt;, _cx: &amp;mut Context&lt;'_&gt;) -&gt; Poll&lt;Self::Output&gt; {
+        let me = self.as_ref();
+
+        if *self.inner.closed.borrow() &amp;&amp; self.inner.data.borrow().is_empty() {
+            return Poll::Ready(None);
+        }
+
+        if me.inner.data.borrow().is_empty() {
+            return Poll::Pending;
+        }
+
+        Poll::Ready(Some(me.inner.data.borrow_mut().pop_front().unwrap()))
+    }
+}
+
+#[derive(Clone)]
+pub struct Sender&lt;T: Clone&gt; {
+    inner: Inner&lt;T&gt;,
+}
+
+impl&lt;T: Clone&gt; Sender&lt;T&gt; {
+    pub fn send(&amp;mut self, t: T) -&gt; Result&lt;(), SendError&gt; {
+        if *self.inner.closed.borrow() {
+            return Err(SendError::Closed);
+        }
+
+        self.inner.data.borrow_mut().push_back(t);
+        if let Some(task_id) = *self.inner.receiver_task_id.borrow() {
+            executor::wake(task_id);
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone)]
+struct Inner&lt;T&gt;
+where
+    T: Clone,
+{
+    data: Rc&lt;RefCell&lt;VecDeque&lt;T&gt;&gt;&gt;,
+    receiver_task_id: Rc&lt;RefCell&lt;Option&lt;u64&gt;&gt;&gt;,
+    closed: Rc&lt;RefCell&lt;bool&gt;&gt;,
+}
+
+pub fn channel&lt;T: Clone&gt;() -&gt; (Receiver&lt;T&gt;, Sender&lt;T&gt;) {
+    let inner = Inner {
+        data: Rc::new(RefCell::new(VecDeque::new())),
+        receiver_task_id: Rc::new(RefCell::new(None)),
+        closed: Rc::new(RefCell::new(false)),
+    };
+    (
+        Receiver {
+            inner: inner.clone(),
+        },
+        Sender {
+            inner: inner.clone(),
+        },
+    )
+}
+</code></pre>
+<p>As I said, there's a single shared ref counted double-ended queue that messages get placed in and consumed from.</p>
+<p>Since it's unbounded I did not make <code>send</code> async. Senders can place as many messages in the queue as they want and blow their memory up. Making this bounded wouldn't be too complicated, but you'd have to decide whether to error if the queue was full or make send async and then block the caller until there's space. Or make a <code>try_send</code> function for the first case. Anyways.</p>
+<p><code>recv</code> is async, so we create a <code>RecvFuture</code> when calling that. When that future is polled it checks the queue to see if there's an item; if so it returns it, otherwise it returns Pending. Nicely, this is cancellation safe.</p>
+<p>You can use this like:</p>
+<pre><code class="language-rust">let (rx, tx) = twoio::mpsc::channel();
+executor::spawn(async move {
+  loop {
+    match rx.recv().await {
+      Some(v) =&gt; println!("v"),
+      None =&gt; return,
+    }
+  }
+});
+
+executor::spawn({
+  let tx = tx.clone();
+  async move {
+    tx.send(1);
+  }
+});
+
+executor::spawn({
+  let tx = tx.clone();
+  async move {
+    tx.send(2);
+  }
+});
+
+executor::run();
+</code></pre>
+<p>Wow, it's the lamest program ever created. Two routines send a number and a third routine receives and prints them. This will block forever, <a href="https://github.com/benhirsch24/twoio/blob/main/examples/mpsc.rs">view this example for a better example</a>.</p>
+<h4 id="waitgroups">WaitGroups</h4>
+<p>I use WaitGroups in Go all the time. I think to be more "Rust-y" I should have created a JoinHandle on a call to <code>executor::spawn</code> and those JoinHandles could have been awaited or <code>join!</code>ed or something, but I implemented WaitGroups.</p>
+<p>WaitGroup is like a refcounted condition variable. You create a wait group and then get Guards from it. Some Task waits on the WaitGroup while other Tasks execute asynchronously, and that first task wants to know when all the other tasks have finished before proceeding. Those other tasks take ownership of the Guards and when the Guard is dropped that first task needs to be woken up to see if it can progress.</p>
+<pre><code class="language-rust">#[derive(Clone, Default)]
+struct WgInner {
+    waiters: Rc&lt;RefCell&lt;u64&gt;&gt;,
+    task_id: Rc&lt;Cell&lt;Option&lt;u64&gt;&gt;&gt;,
+}
+
+#[derive(Default)]
+pub struct WaitGroup {
+    inner: WgInner,
+}
+
+impl WaitGroup {
+    pub fn add(&amp;mut self) -&gt; Guard {
+        let op_id = executor::get_next_op_id();
+        *self.inner.waiters.borrow_mut() += 1;
+        executor::schedule_completion(op_id, false);
+        Guard {
+            inner: self.inner.clone(),
+        }
+    }
+
+    pub fn wait(&amp;self) -&gt; WaitFuture {
+        self.inner.task_id.set(Some(executor::get_task_id()));
+        WaitFuture {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+pub struct WaitFuture {
+    inner: WgInner,
+}
+
+impl Future for WaitFuture {
+    type Output = ();
+
+    fn poll(self: Pin&lt;&amp;mut Self&gt;, _cx: &amp;mut Context&lt;'_&gt;) -&gt; Poll&lt;Self::Output&gt; {
+        let me = self.as_ref();
+        if *me.inner.waiters.borrow() == 0 {
+            log::trace!("WaitGroup done");
+            return Poll::Ready(());
+        }
+
+        log::trace!("WaitGroup poll num_waiters={}", me.inner.waiters.borrow());
+        Poll::Pending
+    }
+}
+
+pub struct Guard {
+    inner: WgInner,
+}
+
+impl Drop for Guard {
+    fn drop(&amp;mut self) {
+        *self.inner.waiters.borrow_mut() -= 1;
+        if let Some(task_id) = self.inner.task_id.get() {
+            log::trace!("Guard being dropped task_id={task_id}");
+            executor::wake(task_id);
+        }
+    }
+}
+</code></pre>
+<p>I hope this is fairly self explanatory. The <code>waiters</code> field is the ref count - if the WaitFuture (which shares the single inner value of the WaitGroup) is waited on and the count is positive then it will return Pending, or if it's 0 it's ready. The Guards need to know which Task is waiting on that WaitFuture and when the Guard is dropped it wakes that task up to see if it can make progress.</p>
+<p>You could probably have the Guard only wake the main task when the count is 0, but that operation is pretty cheap IMO.</p>
+        </div>
+    </article>
+    
+        </div>
+        
+    </main>
+
+    <footer>
+        <p>© Ben Hirsch. Built with ♥️  by Claude Code.</p>
+    </footer>
+    <script src="../js/main.js" defer></script>
+</body>
+</html>

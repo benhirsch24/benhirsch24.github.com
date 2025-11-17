@@ -21,6 +21,9 @@
 
     <main>
         
+        <div class="post-layout">
+            <aside class="post-toc" aria-label="Table of contents"><h2>On this page</h2><nav><ol><li><a href='#basic-connection'>Basic Connection</a><ol><li><a href='#joys-of-hobby-programming'>Joys of Hobby Programming</a></li></ol></li><li><a href='#milestone-2-how-hot-is-it'>Milestone 2: how hot is it?</a><ol><li><a href='#next-great-adventure'>Next Great Adventure</a></li><li><a href='#final-touches'>Final touches</a></li></ol></li><li><a href='#display'>Display</a></li></ol></nav></aside>
+            
     <article class="post">
         <h1 class="post-title">Project Ignition</h1>
         <div class="post-info">December 28, 2023</div>
@@ -30,12 +33,12 @@
 <p>Apparently it has <strong>8</strong> sensors and can predict the <strong>true core temperature</strong> of your meat. That's all well and cool, but after browsing the page I noticed that they have documentation for developers and an open spec for their Bluetooth implementation. That's when I came up with my idea: I bought a <a href="https://www.adafruit.com/product/4296">Raspberry Pi 4</a> because the 5 was out of stock, a <a href="https://www.adafruit.com/product/4484">tiny screen</a>, and a <a href="https://www.adafruit.com/product/3367">USB microphone</a> and patiently waited for them all to arrive. I'd make... a thing. A display of sorts, maybe more.</p>
 <h1>Rust-bustion</h1>
 <p>That's what started <a href="https://github.com/benhirsch24/rustbustion">Rustbustion</a>, a stupid program to talk from a Raspberry Pi to a bluetooth thermometer. I decided to use Rust because I like the language. I've followed it for a few years and even got to ship a production feature (well it's planning to GA in Q1 2024) using it and CGo and it's an enjoyable systems language. I might not build an entire company on Rust, but it's fun to use.</p>
-<h2>Basic Connection</h2>
+<h2 id="basic-connection">Basic Connection</h2>
 <p>My first goal was just to talk to the dang thing and figure out how this whole Bluetooth deal worked.</p>
 <p>I started with using a library called <a href="https://docs.rs/bluer/latest/bluer/">BlueR</a> which seems to be official Rust bindings to <a href="http://www.bluez.org/">BlueZ</a> which is the Linux stack's implementation of Bluetooth. From what I've gathered programs use BlueZ by interfacing with <a href="https://www.freedesktop.org/wiki/Software/dbus/">DBus</a> which is a message bus used for inter-process communication. Programs send a message with a namespace to DBus which routes it to the correct service and listens for the answer.</p>
 <p>There was some basic setup to <a href="https://scribles.net/updating-bluez-on-raspberry-pi-from-5-43-to-5-50/">update the Raspberry Pi bluetooth stack and install some dependencies</a> but once I got that worked out I was able to use the <a href="https://github.com/bluez/bluer/blob/e7b745d6c7d4447641b5bdefa0879274b051939f/bluer/examples/gatt_client.rs#L161">BlueR client example</a> to start seeing what devices were out there chatting.</p>
 <p>From the <a href="https://github.com/combustion-inc/combustion-documentation/blob/main/probe_ble_specification.rst#legacy-ble-4-0-advertisement-packet">Combustion documentation</a> I saw that the first two bytes of the manufacturer data in the advertisement packet were <code>0x09C7</code> so it was easy enough to <a href="https://github.com/benhirsch24/rustbustion/blob/01d6e7f687d02ecd485adf2aa8c9eb215cb70c2f/src/main.rs#L140">look for that</a>. I could scan the ether for Bluetooth advertisements, find my thermometer, connect to it, and disconnect. Ready to make a billion bucks!</p>
-<h3>Joys of Hobby Programming</h3>
+<h3 id="joys-of-hobby-programming">Joys of Hobby Programming</h3>
 <p>As an aside I went to my girlfriend's family's home for Christmas and apparently left the thermometer out the entire time, so when I came back it was out of battery. After charging it for a few hours I could no longer discover it from my program. Wtf!</p>
 <p>I ended up using <code>bluetoothctl</code> to debug this. The rough steps to deal with this (from memory) were to:</p>
 <ol>
@@ -44,7 +47,7 @@
 <li><code>devices</code> to list the known devices. <code>disconnect &lt;address&gt;</code> and <code>remove &lt;address&gt;</code> to remove it from the list of known addresses to the Pi.</li>
 </ol>
 <p>At this point it still didn't show up. After fidgeting with it by docking and removing it repeatedly it did show back up. I'm unsure if these steps were necessary but learning a bit about <code>bluetoothctl</code> would prove to be useful down the line.</p>
-<h2>Milestone 2: how hot is it?</h2>
+<h2 id="milestone-2-how-hot-is-it">Milestone 2: how hot is it?</h2>
 <p>Having achieved the monumental task of discovering and connecting to the thermometer it was time to read some data from it. My bluetooth knowledge journey commenced.</p>
 <p>A Bluetooth device can expose one or more Services each with their own unique UUID the manufacturer tells you about. Each service can have one or more Characteristics again with their own UUIDs.</p>
 <p>To read the probe temperature (this is the probe at the very tip of the thermometer) I would <a href="https://github.com/benhirsch24/rustbustion/blob/main/src/main.rs#L108">find the Service</a> with UUID <code>00000100-CAAB-3792-3D44-97AE51C1407A</code></p>
@@ -53,36 +56,36 @@
 
     for service in device.services().await? {
         let uuid = service.uuid().await?;
-        info!(&quot;  Service UUID: {} ID: {}&quot;, &amp;uuid, service.id());
+        info!("  Service UUID: {} ID: {}", &amp;uuid, service.id());
         if uuid == probe_uuid {
             probe_service.replace(service.clone());
         } else if uuid == uart_uuid {
             uart_service.replace(service.clone());
         }
-        info!(&quot;  Service data: {:?}&quot;, service.all_properties().await?);
+        info!("  Service data: {:?}", service.all_properties().await?);
     }
 </code></pre>
 <p>List the Characteristics (there is only one), interrogate it to make sure it is "readable", and read it which ends up returning 48 bytes. <a href="https://github.com/benhirsch24/rustbustion/blob/01d6e7f687d02ecd485adf2aa8c9eb215cb70c2f/src/main.rs#L45C1-L56C1">Code Permalink</a></p>
 <pre><code>    for c in combustion.probe_status_service.characteristics().await? {
         let uuid = c.uuid().await?;
-        info!(&quot;Probe Status c: {}&quot;, &amp;uuid);
+        info!("Probe Status c: {}", &amp;uuid);
         let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(2000));
         loop {
             tokio::select! {
                 _ = interval.tick() =&gt; {
-                    // If the characteristic flags includes &quot;read&quot;
+                    // If the characteristic flags includes "read"
                     if c.flags().await?.read {
                         // Read it
                         let value = c.read().await?;
 
 </code></pre>
-<h3>Next Great Adventure</h3>
+<h3 id="next-great-adventure">Next Great Adventure</h3>
 <p>At this point I have a blob of data. <a href="https://github.com/combustion-inc/combustion-documentation/blob/main/probe_ble_specification.rst#probe-status-service">The docs seem pretty straightforward as to what I got</a>. Two u32 integers that tell me how many records there are</p>
 <pre><code>                        let min_bytes: [u8; 4] = [value[0], value[1], value[2], value[3]];
                         let max_bytes: [u8; 4] = [value[4], value[5], value[6], value[7]];
                         let min = u32::from_ne_bytes(min_bytes);
                         let max = u32::from_ne_bytes(max_bytes);
-                        info!(&quot;Min {} max {}&quot;, min, max);
+                        info!("Min {} max {}", min, max);
 </code></pre>
 <p>and then <a href="https://github.com/combustion-inc/combustion-documentation/blob/main/probe_ble_specification.rst#raw-temperature-data">13 bytes with the 8 temperatures</a>, 13 bits each. Celsius is then calculated from this 13 bit number as <code>C = 0.05 * N - 20</code>.</p>
 <p>Unfortunately this took me a while to figure out to my own chagrin. Reader, I've done my fair share of bit-twiddling. My first job out of college was programming GPUs and warping images so I've written a PPM parser and writer many many times. I quantized floats into u8s to speed up GPU kernels before LLMs were a thing.</p>
@@ -101,23 +104,23 @@
 }
 </code></pre>
 <p>And then</p>
-<pre><code>                        let vs: [u8; 13] = value[8..21].try_into().expect(&quot;13&quot;);
+<pre><code>                        let vs: [u8; 13] = value[8..21].try_into().expect("13");
                         let unpacked = RawTempData::from_bytes(vs);
                         let t1c = (unpacked.t1() * 5 - 2000) as f32 / 100.0;
 </code></pre>
 <p>And we were cooking! Metaphorically, I haven't yet cooked with the thermometer.</p>
-<h3>Final touches</h3>
+<h3 id="final-touches">Final touches</h3>
 <p>I added a simple server using <a href="https://hyper.rs">Hyper</a> to expose the last read temperature value as a local server so I could <code>curl http://127.0.0.1:3000</code> to get that numerical value. I also spawned a task to listen for CtrlC using <code>tokio::signal::ctrl_c()</code> to gracefully shut down the program and that was that. A good first "stupid fun" Bluetooth program.</p>
-<h2>Display</h2>
+<h2 id="display">Display</h2>
 <p>I had one more mission and that was to display something on my tiny tiny touch screen.</p>
 <p>It's pretty basic, but I started with the Adafruit example code and <a href="https://github.com/benhirsch24/rustbustion/blob/01d6e7f687d02ecd485adf2aa8c9eb215cb70c2f/display.py#L49C1-L62C1">ended up with this</a>:</p>
 <pre><code>    while True:
         draw.rectangle((0, 80, 240, 160), outline=0, fill=(0, 255, 0))
-        f = urllib.request.urlopen(&quot;http://127.0.0.1:3000&quot;)
-        temp = f.read().decode(&quot;utf-8&quot;)
-        draw.text((x, y), &quot;Temp: &quot; + temp, font=font, fill=&quot;#FFFFFF&quot;)
-        coords = &quot;X: &quot; + str(x) + &quot; Y: &quot; + str(y)
-        draw.text((0, 0), coords, font=font, fill=&quot;#FFFFFF&quot;)
+        f = urllib.request.urlopen("http://127.0.0.1:3000")
+        temp = f.read().decode("utf-8")
+        draw.text((x, y), "Temp: " + temp, font=font, fill="#FFFFFF")
+        coords = "X: " + str(x) + " Y: " + str(y)
+        draw.text((0, 0), coords, font=font, fill="#FFFFFF")
         display.image(image, 180)
         draw.rectangle((0, 0, 240, 320), outline=0, fill=0)
         if buttonA.value and not buttonB.value:
@@ -149,10 +152,13 @@
         </div>
     </article>
     
+        </div>
+        
     </main>
 
     <footer>
         <p>© Ben Hirsch. Built with ♥️  by Claude Code.</p>
     </footer>
+    <script src="../js/main.js" defer></script>
 </body>
 </html>
