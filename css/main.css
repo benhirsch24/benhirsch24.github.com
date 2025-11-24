@@ -310,6 +310,12 @@ main > h2 {
     }
 }
 
+@media (max-width: 768px) {
+    .post-toc {
+        display: none;
+    }
+}
+
 @media (max-width: 1000px) {
     .post-layout {
         grid-template-columns: 1fr;
